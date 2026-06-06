@@ -1,0 +1,4 @@
+export { useDishStore } from './dish'
+export { useRecommendStore } from './recommend'
+export { useRecordStore } from './record'
+export { useStatsStore } from './stats'
