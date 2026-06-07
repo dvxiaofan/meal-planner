@@ -450,6 +450,17 @@ class AiSuggestService:
     按相关度打分，返回 top N + 推荐理由。
     """
 
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _dish_summary(self, dish: Dish) -> dict:
+        return {
+            "id": dish.id, "name": dish.name, "category": dish.category,
+            "taste": dish.taste, "difficulty": dish.difficulty,
+            "cook_time": dish.cook_time, "image_url": dish.image_url,
+            "is_favorite": dish.is_favorite, "is_enabled": dish.is_enabled
+        }
+
     TASTE_KEYWORDS = {
         "辣": ["微辣", "中辣", "重辣", "麻辣", "酸辣"],
         "清淡": ["清淡"], "清": ["清淡"], "不辣": ["清淡"],
