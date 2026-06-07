@@ -341,17 +341,26 @@ class AchievementService:
     def _calc_consecutive_days(self) -> int:
         """从今天往前算，连续有记录的最大天数"""
         from ..models.dish import Dish
-        dates = (
+        from datetime import date as _date
+        rows = (
             self.db.query(func.date(MealRecord.record_date).label("d"))
             .distinct()
             .order_by(desc("d"))
             .all()
         )
-        date_list = [d[0] for d in dates]
+        # SQLite 的 func.date() 返回字符串，统一转 date 对象
+        date_list: list = []
+        for r in rows:
+            v = r[0]
+            if isinstance(v, str):
+                date_list.append(_date.fromisoformat(v))
+            elif isinstance(v, _date):
+                date_list.append(v)
+            else:
+                continue
         if not date_list:
             return 0
         # 必须包含今天或昨天才算"当前连续"
-        from datetime import date as _date
         today = _date.today()
         start = date_list[0]
         if (today - start).days > 1:
