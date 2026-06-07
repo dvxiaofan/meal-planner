@@ -292,36 +292,66 @@ meal-planner/
 
 ## 开发计划
 
-### Phase 1：基础框架（1-2天）
-- [ ] 搭建Vue3+Vite前端项目
-- [ ] 搭建FastAPI后端项目
-- [ ] 数据库初始化脚本
-- [ ] 基础CRUD API（菜品）
-- [ ] 前后端联调
+> **当前状态盘点 · 2026-06-07**
+> 图例：✅ 已完成 · 🚧 部分完成（详见备注）· ❌ 未开始
 
-### Phase 2：核心功能（3-5天）
-- [ ] 菜品管理页面（列表、新增、编辑、删除）
-- [ ] 图片上传功能
-- [ ] 食材与步骤管理
-- [ ] 智能推荐算法
+### Phase 1：基础框架（1-2天）— ✅ 100%
+- ✅ 搭建 Vue3 + Vite 前端项目
+- ✅ 搭建 FastAPI 后端项目
+- ✅ 数据库初始化脚本（`backend/init_data.py` 含 48 道预置菜品）
+- ✅ 基础 CRUD API（菜品）
+- ✅ 前后端联调（vite proxy + nginx 反代）
 
-### Phase 3：进阶功能（3-5天）
-- [ ] 转盘抽奖组件
-- [ ] 盲盒翻牌组件
-- [ ] 周计划生成
-- [ ] 购物清单
+### Phase 2：核心功能（3-5天）— 🚧 70%
+- ✅ 菜品列表 / 新增 / 删除
+- ✅ 智能推荐算法（daily / mood / random）
+- 🚧 菜品编辑（`DishDetail.vue` "编辑"按钮是 TODO）
+- 🚧 图片上传（后端 `POST /dishes/{id}/image` ✅，前端无上传入口）
+- 🚧 食材与步骤管理（model + schema ✅，前端缺动态表单）
 
-### Phase 4：完善与优化（2-3天）
-- [ ] 用餐记录与照片墙
-- [ ] 成就系统
-- [ ] 统计面板
-- [ ] 响应式优化
+### Phase 3：进阶功能（3-5天）— 🚧 15%
+- 🚧 转盘抽奖（`Wheel.vue` 有页面，rotation 累加与返回结果不对应 → 假转盘）
+- ❌ 盲盒翻牌组件（无路由、无页面）
+- ❌ 周计划生成（`WeeklyPlan.vue` 是 TODO 空壳）
+- ❌ 购物清单（无 API、无页面）
 
-### Phase 5：部署（1天）
-- [ ] Dockerfile编写
-- [ ] docker-compose配置
-- [ ] 部署到飞牛NAS
-- [ ] 测试与调试
+### Phase 4：完善与优化（2-3天）— 🚧 30%
+- 🚧 用餐记录（API + store 完整，前端**没有任何创建入口**）
+- ❌ 照片墙（`/records/timeline` API 有，前端无 UI）
+- 🚧 统计面板（后端 `/stats/dashboard` OK，前端未接 ECharts）
+- 🚧 响应式优化（仅 `DishDetail.vue` 写了 `@media`）
+- ❌ 成就系统（model + schema 有，`AchievementService.check_achievements` 是 `pass`）
+
+### Phase 5：部署（1天）— ✅ 100%
+- ✅ Dockerfile 编写
+- ✅ docker-compose 配置
+- ✅ 部署到飞牛 NAS（commit `1bd834a` 修复 `host.docker.internal` 兼容性问题）
+- 🚧 测试与调试（暂无自动化测试）
+
+---
+
+## v1.1 增量需求（基于当前代码差距 · 2026-06-07）
+
+### 🔥 高价值 · 短工时（建议本周完成）
+1. **用餐记录创建入口** — Home / DishDetail / Recommend 都加"记录这一餐"按钮 → 弹 modal 选餐型 + 评分 + 备注 → 写库。把"用餐记录"从摆设变实用的最短路径
+2. **菜品编辑功能** — `DishDetail.vue` 的 TODO 落地 + 完整 ingredients / steps 动态表单（动态加/删项）
+3. **菜品图片上传 UI** — Dishes 列表卡片加"上传图片"按钮，调 `POST /dishes/{id}/image`
+4. **Stats 接 ECharts** — 分类分布用 pie 饼图、热门菜品用 bar 柱状图（依赖已装未用）
+5. **全局错误提示** — `frontend/src/api/request.ts` 响应拦截器接 NMessage，替换裸 `console.error`
+
+### ⚡ 中价值 · 中等工时
+6. **周计划生成** — 前端可拖拽 / 后端按"近 7 天没吃 + 收藏加权"算法生成；自动汇总购物清单
+7. **盲盒翻牌页** — 新路由 `mystery.vue`，3 张牌翻转动画
+8. **收藏 / 已禁用筛选** — Dishes 加 NSwitch "只看收藏"/"包含已禁用"（后端 `is_favorite` / `is_enabled` filter 已支持）
+9. **成就自动触发** — `create_record` 后 hook `AchievementService.check_achievements`；前端成就页加进度条
+10. **MainLayout 顶部 header** — logo + 今日日期 + 欢迎语（当前是裸侧边栏）
+
+### 🌱 长期打磨
+11. **菜品配图** — 接 [TheMealDB](https://www.themealdb.com/) 免费 API 自动搜（带缓存），零成本丰富视觉
+12. **转盘算法修正** — 根据返回 `dish.id` 算指针落在哪个扇区，让结果与旋转终点对齐
+13. **照片墙瀑布流视图** — Records 页面 Tab 切换"列表 / 照片墙"，时间线用 masonry
+14. **食材库存（pantry）** — 新表，购物清单可勾"已买到"自动入库存；库存不足时推荐自动过滤
+15. **语音录入** — "今天吃了红烧肉" → 简单 nlu 匹配 `dish_id`
 
 ---
 
