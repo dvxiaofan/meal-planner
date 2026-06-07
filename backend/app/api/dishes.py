@@ -12,7 +12,7 @@ from ..schemas.dish import (
     DashboardStats, PantryItemCreate, PantryItemUpdate, PantryItemResponse
 )
 from ..models.dish import PantryItem
-from ..services.dish_service import DishService, RecommendService, MealRecordService, AchievementService, WeeklyPlanService
+from ..services.dish_service import DishService, RecommendService, MealRecordService, AchievementService, WeeklyPlanService, AiSuggestService
 
 router = APIRouter()
 
@@ -202,6 +202,18 @@ def get_usage_stats(db: Session = Depends(get_db)):
     from ..models.dish import UsageCounter
     rows = db.query(UsageCounter).all()
     return {"stats": [{"key": r.key, "count": r.count} for r in rows]}
+
+
+# 智能菜谱匹配（无需 LLM，基于关键词字典）
+@router.post("/ai/suggest")
+def ai_suggest(payload: dict, db: Session = Depends(get_db)):
+    """根据自然语言 query 返回 top 匹配 + 推荐理由"""
+    query = (payload.get("query") or "").strip()
+    top_n = int(payload.get("top_n") or 5)
+    if not query:
+        raise HTTPException(status_code=400, detail="query 不能为空")
+    service = AiSuggestService(db)
+    return service.suggest(query, top_n=top_n)
 
 
 # 用餐记录相关API

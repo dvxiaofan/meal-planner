@@ -199,3 +199,21 @@ export const usageApi = {
     return request.get<any, { stats: Array<{ key: string; count: number }> }>('/usage/stats')
   }
 }
+
+// AI 智能菜谱匹配
+export const aiApi = {
+  suggest(query: string, top_n: number = 5) {
+    return request.post<any, {
+      query: string
+      preferences: {
+        taste: string[]
+        category: string[]
+        ingredients: string[]
+        difficulty: number[]
+        max_time: number | null
+      }
+      excludes: string[]
+      items: Array<{ dish: Dish; score: number; reasons: string[] }>
+    }>('/ai/suggest', { query, top_n })
+  }
+}

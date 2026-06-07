@@ -438,6 +438,192 @@ class AchievementService:
         return newly_unlocked
 
 
+class AiSuggestService:
+    """智能菜谱匹配（无 LLM，基于关键词字典）
+
+    解析自然语言 query 中的：
+    - 口味（辣/清淡/酸甜/...）
+    - 分类（汤/面/饭/凉菜/...）
+    - 食材（蛋/鸡/鱼/豆腐/...）
+    - 难度（简单/挑战/...）
+    - 时间（快/10分钟/...）
+    按相关度打分，返回 top N + 推荐理由。
+    """
+
+    TASTE_KEYWORDS = {
+        "辣": ["微辣", "中辣", "重辣", "麻辣", "酸辣"],
+        "清淡": ["清淡"], "清": ["清淡"], "不辣": ["清淡"],
+        "甜": ["酸甜"], "酸": ["酸辣", "酸甜"], "酸甜": ["酸甜"],
+        "麻": ["麻辣"], "咸": ["咸鲜"], "蒜": ["蒜香"],
+        "五香": ["五香"],
+        "spicy": ["微辣", "中辣", "重辣", "麻辣"],
+    }
+    CATEGORY_KEYWORDS = {
+        "汤": ["汤羹"], "羹": ["汤羹"], "soup": ["汤羹"],
+        "面": ["主食"], "noodle": ["主食"], "粉": ["主食"],
+        "饭": ["主食"], "rice": ["主食"],
+        "凉": ["凉菜"], "凉拌": ["凉菜"],
+        "小吃": ["小吃"], "snack": ["小吃"],
+        "荤": ["荤菜"], "素": ["素菜"],
+        "meat": ["荤菜"], "veg": ["素菜"], "vegetable": ["素菜"],
+    }
+    INGREDIENT_KEYWORDS = {
+        "蛋": ["蛋"], "鸡蛋": ["蛋"], "番茄": ["番茄", "西红柿"], "西红柿": ["番茄", "西红柿"],
+        "鸡": ["鸡"], "鸡肉": ["鸡"], "鸡翅": ["鸡翅"], "鸡丁": ["鸡丁"],
+        "牛": ["牛"], "牛肉": ["牛"], "牛腩": ["牛腩"],
+        "猪": ["猪", "排", "五花"], "排骨": ["排"], "五花": ["五花"],
+        "鱼": ["鱼"], "鲈鱼": ["鱼"], "草鱼": ["鱼"],
+        "虾": ["虾"], "豆腐": ["豆腐"], "白菜": ["白菜", "包菜"],
+        "土豆": ["土豆"], "茄子": ["茄子"], "青椒": ["椒", "辣椒"],
+        "花菜": ["花菜", "菜花"], "包菜": ["包菜"], "丝瓜": ["丝瓜"],
+        "虾": ["虾"], "韭菜": ["韭菜"],
+    }
+    DIFFICULTY_KEYWORDS = {
+        "简单": [1, 2], "快": [1, 2], "新手": [1, 2], "懒": [1, 2],
+        "easy": [1, 2], "quick": [1, 2],
+        "挑战": [3, 4, 5], "难": [4, 5], "功夫": [3, 4, 5],
+    }
+    TIME_KEYWORDS = {
+        "快": 30, "10分钟": 10, "15分钟": 15, "20分钟": 20,
+        "30分钟": 30, "半小时": 30, "40分钟": 40,
+    }
+    NEGATIVE_KEYWORDS = {
+        "不要": True, "不想": True, "no": True, "not": True, "别": True, "exclude": True,
+    }
+
+    def suggest(self, query: str, top_n: int = 5) -> dict:
+        """返回 top_n 匹配 + 解析出的偏好 + 拒绝关键词"""
+        if not query or not query.strip():
+            return {
+                "query": query,
+                "preferences": {"taste": [], "category": [], "ingredients": [], "difficulty": [], "max_time": None},
+                "excludes": [],
+                "items": []
+            }
+
+        # 解析 query
+        tastes, cat_hits, ing_hits, diff_hits, max_time = self._parse(query)
+        # 简单 negative：query 中含"不要 X"，从结果里过滤
+        excludes = self._extract_excludes(query)
+
+        # 候选：启用 + 名字/描述/食材/分类/taste 命中任一
+        all_dishes = self.db.query(Dish).filter(Dish.is_enabled == True).all()
+        if excludes:
+            all_dishes = [d for d in all_dishes
+                          if not any(ex in (d.name or "") for ex in excludes)]
+
+        # 评分
+        scored = []
+        # 最近 7 天吃过的菜降权
+        recent_cutoff = datetime.now() - timedelta(days=7)
+        recent_ids = {
+            r[0] for r in
+            self.db.query(MealRecord.dish_id)
+            .filter(MealRecord.record_date >= recent_cutoff)
+            .distinct().all()
+        }
+
+        for dish in all_dishes:
+            score, reasons = self._score_dish(
+                dish, tastes, cat_hits, ing_hits, diff_hits, max_time
+            )
+            if dish.id in recent_ids:
+                score -= 2
+                reasons.append("最近吃过")
+            if dish.is_favorite:
+                score += 1
+                reasons.append("你收藏了")
+            if score <= 0:
+                continue
+            scored.append({
+                "dish": self._dish_summary(dish),
+                "score": score,
+                "reasons": reasons[:3]  # 最多 3 条
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return {
+            "query": query,
+            "preferences": {
+                "taste": tastes, "category": cat_hits, "ingredients": ing_hits,
+                "difficulty": diff_hits, "max_time": max_time
+            },
+            "excludes": excludes,
+            "items": scored[:top_n]
+        }
+
+    def _parse(self, query: str):
+        tastes = []
+        cat_hits = []
+        ing_hits = []
+        diff_hits = []
+        max_time = None
+        for kw, vals in self.TASTE_KEYWORDS.items():
+            if kw in query:
+                tastes.extend(vals)
+        for kw, vals in self.CATEGORY_KEYWORDS.items():
+            if kw in query:
+                cat_hits.extend(vals)
+        for kw, vals in self.INGREDIENT_KEYWORDS.items():
+            if kw in query:
+                ing_hits.extend(vals)
+        for kw, vals in self.DIFFICULTY_KEYWORDS.items():
+            if kw in query:
+                diff_hits.extend(vals)
+        for kw, t in self.TIME_KEYWORDS.items():
+            if kw in query:
+                max_time = t if max_time is None else min(max_time, t)
+        # 去重
+        tastes = list(set(tastes))
+        cat_hits = list(set(cat_hits))
+        ing_hits = list(set(ing_hits))
+        diff_hits = list(set(diff_hits))
+        return tastes, cat_hits, ing_hits, diff_hits, max_time
+
+    def _extract_excludes(self, query: str):
+        """简单 negative：匹配 '不要 X' / '不想 X' / '别 X'"""
+        excludes = []
+        import re
+        for m in re.finditer(r"(不要|不想|别|exclude|not)\s*([一-鿿A-Za-z]+)", query):
+            excludes.append(m.group(2))
+        return excludes
+
+    def _score_dish(self, dish, tastes, cat_hits, ing_hits, diff_hits, max_time):
+        score = 0
+        reasons = []
+        # 口味
+        if tastes and dish.taste in tastes:
+            score += 3
+            reasons.append(f"口味匹配（{dish.taste}）")
+        # 分类
+        if cat_hits and dish.category in cat_hits:
+            score += 2
+            reasons.append(f"是{dish.category}")
+        # 食材（dish.name + ingredients.name）
+        if ing_hits:
+            name_lower = dish.name
+            ing_names = " ".join(i.name for i in (dish.ingredients or []))
+            hit_any = False
+            for ing in ing_hits:
+                if any(ing in n for n in [name_lower, ing_names]):
+                    hit_any = True
+                    score += 4
+                    reasons.append(f"含 {ing}")
+                    break  # 一个食材命中就够，避免多加分
+            if not hit_any and ing_hits:
+                # 完全没命中 → 大幅降权
+                score -= 1
+        # 难度
+        if diff_hits and dish.difficulty in diff_hits:
+            score += 2
+            reasons.append(f"难度 {dish.difficulty} 星" + ("（简单）" if dish.difficulty <= 2 else "（有挑战）"))
+        # 时间
+        if max_time and dish.cook_time and dish.cook_time <= max_time:
+            score += 2
+            reasons.append(f"只需 {dish.cook_time} 分钟")
+        return score, reasons
+
+
 class WeeklyPlanService:
     """周计划 + 购物清单服务"""
 
