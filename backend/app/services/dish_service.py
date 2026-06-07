@@ -390,3 +390,189 @@ class AchievementService:
         if newly_unlocked:
             self.db.commit()
         return newly_unlocked
+
+
+class WeeklyPlanService:
+    """周计划 + 购物清单服务"""
+
+    MEAL_TYPES = ["lunch", "dinner"]
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def get_plan(self, week_start: datetime) -> List[dict]:
+        """获取指定周起始的 14 个餐位（7 天 × 午晚餐）"""
+        from ..models.dish import WeeklyPlan
+        # week_start 归零到天
+        start_date = week_start.date() if isinstance(week_start, datetime) else week_start
+        rows = (
+            self.db.query(WeeklyPlan)
+            .filter(func.date(WeeklyPlan.week_start) == start_date)
+            .order_by(WeeklyPlan.day_of_week, WeeklyPlan.meal_type)
+            .all()
+        )
+        out = []
+        for r in rows:
+            dish = self.db.query(Dish).filter(Dish.id == r.dish_id).first()
+            out.append({
+                "id": r.id,
+                "week_start": r.week_start.isoformat(),
+                "day_of_week": r.day_of_week,
+                "meal_type": r.meal_type,
+                "dish": self._dish_summary(dish) if dish else None
+            })
+        return out
+
+    def _dish_summary(self, dish: Dish) -> dict:
+        return {
+            "id": dish.id, "name": dish.name, "category": dish.category,
+            "taste": dish.taste, "difficulty": dish.difficulty,
+            "cook_time": dish.cook_time, "image_url": dish.image_url,
+            "is_favorite": dish.is_favorite, "is_enabled": dish.is_enabled
+        }
+
+    def generate_plan(self, week_start: Optional[datetime] = None, replace: bool = True) -> List[dict]:
+        """按"近 7 天没吃 + 收藏加权 + 不重复同周"算法生成本周 14 个餐位
+        - replace=True 时先清空该周
+        - 返回生成结果
+        """
+        from ..models.dish import WeeklyPlan
+        if week_start is None:
+            today = datetime.now().date()
+            week_start = datetime.combine(today - timedelta(days=today.weekday()), datetime.min.time())
+
+        start_date = week_start.date() if isinstance(week_start, datetime) else week_start
+
+        if replace:
+            self.db.query(WeeklyPlan).filter(func.date(WeeklyPlan.week_start) == start_date).delete()
+            self.db.commit()
+
+        # 候选菜品：仅启用的
+        candidates = self.db.query(Dish).filter(Dish.is_enabled == True).all()
+        if not candidates:
+            return []
+
+        # 已吃过的：最近 7 天
+        recent_cutoff = datetime.now() - timedelta(days=7)
+        recent_ids = {
+            r[0] for r in
+            self.db.query(MealRecord.dish_id)
+            .filter(MealRecord.record_date >= recent_cutoff)
+            .distinct().all()
+        }
+
+        # 池子：排除最近吃过
+        pool = [d for d in candidates if d.id not in recent_ids]
+        if not pool:
+            pool = candidates  # 退而求其次，用全部
+
+        # 14 个槽位
+        slots = [(dow, mt) for dow in range(1, 8) for mt in self.MEAL_TYPES]
+        used: set = set()
+        generated = []
+
+        for dow, meal_type in slots:
+            available = [d for d in pool if d.id not in used]
+            if not available:
+                # 所有菜都用过了，重置 used 允许重复
+                used.clear()
+                available = pool
+            weights = [2 if d.is_favorite else 1 for d in available]
+            chosen = random.choices(available, weights=weights, k=1)[0]
+            used.add(chosen.id)
+            plan = WeeklyPlan(
+                week_start=week_start,
+                day_of_week=dow,
+                meal_type=meal_type,
+                dish_id=chosen.id
+            )
+            self.db.add(plan)
+            self.db.flush()
+            generated.append({
+                "id": plan.id,
+                "week_start": plan.week_start.isoformat(),
+                "day_of_week": dow,
+                "meal_type": meal_type,
+                "dish": self._dish_summary(chosen)
+            })
+
+        self.db.commit()
+        return generated
+
+    def swap_meal(self, plan_id: int, new_dish_id: int) -> Optional[dict]:
+        """替换某个餐位的菜品"""
+        from ..models.dish import WeeklyPlan
+        plan = self.db.query(WeeklyPlan).filter(WeeklyPlan.id == plan_id).first()
+        if not plan:
+            return None
+        plan.dish_id = new_dish_id
+        self.db.commit()
+        self.db.refresh(plan)
+        dish = self.db.query(Dish).filter(Dish.id == new_dish_id).first()
+        return {
+            "id": plan.id,
+            "week_start": plan.week_start.isoformat(),
+            "day_of_week": plan.day_of_week,
+            "meal_type": plan.meal_type,
+            "dish": self._dish_summary(dish) if dish else None
+        }
+
+    def remove_meal(self, plan_id: int) -> bool:
+        from ..models.dish import WeeklyPlan
+        plan = self.db.query(WeeklyPlan).filter(WeeklyPlan.id == plan_id).first()
+        if not plan:
+            return False
+        self.db.delete(plan)
+        self.db.commit()
+        return True
+
+    def get_shopping_list(self, week_start: datetime) -> dict:
+        """聚合指定周所有菜品的食材，按食材名合并用量"""
+        from ..models.dish import WeeklyPlan
+        start_date = week_start.date() if isinstance(week_start, datetime) else week_start
+        plans = (
+            self.db.query(WeeklyPlan)
+            .filter(func.date(WeeklyPlan.week_start) == start_date)
+            .all()
+        )
+        if not plans:
+            return {"week_start": start_date.isoformat(), "by_category": {}, "items": []}
+
+        # 取所有相关菜品及其 ingredients
+        dish_ids = [p.dish_id for p in plans]
+        dishes = self.db.query(Dish).filter(Dish.id.in_(dish_ids)).all()
+        dish_map = {d.id: d for d in dishes}
+
+        items_map: dict = {}  # name -> {name, amount_total, type, used_in: [dish_names]}
+        for plan in plans:
+            dish = dish_map.get(plan.dish_id)
+            if not dish:
+                continue
+            for ing in (dish.ingredients or []):
+                key = ing.name.strip()
+                if not key:
+                    continue
+                if key not in items_map:
+                    items_map[key] = {
+                        "name": key,
+                        "amounts": [],
+                        "type": ing.type,
+                        "used_in": []
+                    }
+                if ing.amount:
+                    items_map[key]["amounts"].append(ing.amount)
+                items_map[key]["used_in"].append(dish.name)
+
+        # 按 type 分组（主料/调料/其它）
+        by_category: dict = {}
+        for it in items_map.values():
+            cat = it.get("type") or "其它"
+            by_category.setdefault(cat, []).append(it)
+
+        # 排序：主料 → 调料
+        items = list(items_map.values())
+        return {
+            "week_start": start_date.isoformat(),
+            "by_category": by_category,
+            "items": items
+        }

@@ -173,3 +173,35 @@ class DashboardStats(BaseModel):
     category_distribution: dict
     top_dishes: List[dict]
     recent_records: List[dict]
+
+
+# 库存 schemas
+class PantryItemBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    amount: Optional[str] = Field(None, max_length=50)
+    unit: Optional[str] = Field(None, max_length=20)
+    category: Optional[str] = Field(None, max_length=50)
+    note: Optional[str] = None
+    in_stock: bool = True
+
+
+class PantryItemCreate(PantryItemBase):
+    pass
+
+
+class PantryItemUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    amount: Optional[str] = Field(None, max_length=50)
+    unit: Optional[str] = Field(None, max_length=20)
+    category: Optional[str] = Field(None, max_length=50)
+    note: Optional[str] = None
+    in_stock: Optional[bool] = None
+
+
+class PantryItemResponse(PantryItemBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

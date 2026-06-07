@@ -86,7 +86,7 @@ class WeeklyPlan(Base):
 class Achievement(Base):
     """成就表"""
     __tablename__ = "achievements"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text)
@@ -96,3 +96,18 @@ class Achievement(Base):
     condition_value = Column(Integer)
     is_unlocked = Column(Boolean, default=False)
     unlocked_at = Column(DateTime)
+
+
+class PantryItem(Base):
+    """食材库存表"""
+    __tablename__ = "pantry_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    amount = Column(String(50))
+    unit = Column(String(20))
+    category = Column(String(50))
+    note = Column(Text)
+    in_stock = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

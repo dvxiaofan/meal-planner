@@ -9,9 +9,10 @@ from ..core.config import settings
 from ..schemas.dish import (
     DishCreate, DishUpdate, DishResponse, DishListResponse,
     RecommendResponse, MealRecordCreate, MealRecordResponse,
-    DashboardStats
+    DashboardStats, PantryItemCreate, PantryItemUpdate, PantryItemResponse
 )
-from ..services.dish_service import DishService, RecommendService, MealRecordService, AchievementService
+from ..models.dish import PantryItem
+from ..services.dish_service import DishService, RecommendService, MealRecordService, AchievementService, WeeklyPlanService
 
 router = APIRouter()
 
@@ -245,6 +246,171 @@ def trigger_achievement_check(db: Session = Depends(get_db)):
             for a in new
         ]
     }
+
+
+# 周计划相关API
+@router.get("/weekly-plan")
+def get_weekly_plan(week_start: Optional[str] = None, db: Session = Depends(get_db)):
+    """获取指定周（默认本周一）的计划；week_start 格式 YYYY-MM-DD"""
+    from datetime import datetime as _dt
+    if week_start:
+        start = _dt.fromisoformat(week_start)
+    else:
+        today = _dt.now().date()
+        start = _dt.combine(today - timedelta(days=today.weekday()), _dt.min.time())
+    service = WeeklyPlanService(db)
+    items = service.get_plan(start)
+    return {
+        "week_start": start.date().isoformat(),
+        "items": items
+    }
+
+
+@router.post("/weekly-plan/generate")
+def generate_weekly_plan(payload: dict = None, db: Session = Depends(get_db)):
+    """生成本周（或指定周）的计划。payload: {week_start?, replace?}"""
+    from datetime import datetime as _dt
+    payload = payload or {}
+    week_start_str = payload.get("week_start")
+    replace = payload.get("replace", True)
+    if week_start_str:
+        week_start = _dt.fromisoformat(week_start_str)
+    else:
+        today = _dt.now().date()
+        week_start = _dt.combine(today - timedelta(days=today.weekday()), _dt.min.time())
+    service = WeeklyPlanService(db)
+    items = service.generate_plan(week_start=week_start, replace=replace)
+    return {
+        "week_start": week_start.date().isoformat(),
+        "items": items
+    }
+
+
+@router.patch("/weekly-plan/{plan_id}")
+def swap_meal(plan_id: int, payload: dict, db: Session = Depends(get_db)):
+    """替换某个餐位的菜品"""
+    new_dish_id = payload.get("dish_id")
+    if not new_dish_id:
+        raise HTTPException(status_code=400, detail="缺少 dish_id")
+    service = WeeklyPlanService(db)
+    result = service.swap_meal(plan_id, new_dish_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="餐位不存在")
+    return result
+
+
+@router.delete("/weekly-plan/{plan_id}")
+def delete_meal(plan_id: int, db: Session = Depends(get_db)):
+    """删除某个餐位"""
+    service = WeeklyPlanService(db)
+    if not service.remove_meal(plan_id):
+        raise HTTPException(status_code=404, detail="餐位不存在")
+    return {"message": "已删除"}
+
+
+@router.get("/shopping-list")
+def get_shopping_list(week_start: Optional[str] = None, db: Session = Depends(get_db)):
+    """获取指定周的购物清单（聚合所有菜品食材）"""
+    from datetime import datetime as _dt
+    if week_start:
+        start = _dt.fromisoformat(week_start)
+    else:
+        today = _dt.now().date()
+        start = _dt.combine(today - timedelta(days=today.weekday()), _dt.min.time())
+    service = WeeklyPlanService(db)
+    return service.get_shopping_list(start)
+
+
+# 食材库存 API
+@router.get("/pantry", response_model=List[PantryItemResponse])
+def list_pantry(
+    category: Optional[str] = None,
+    in_stock: Optional[bool] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """获取库存列表"""
+    q = db.query(PantryItem)
+    if category:
+        q = q.filter(PantryItem.category == category)
+    if in_stock is not None:
+        q = q.filter(PantryItem.in_stock == in_stock)
+    if search:
+        q = q.filter(PantryItem.name.contains(search))
+    return q.order_by(PantryItem.category, PantryItem.name).all()
+
+
+@router.post("/pantry", response_model=PantryItemResponse)
+def create_pantry_item(data: PantryItemCreate, db: Session = Depends(get_db)):
+    """新增库存条目"""
+    item = PantryItem(**data.model_dump())
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.put("/pantry/{item_id}", response_model=PantryItemResponse)
+def update_pantry_item(item_id: int, data: PantryItemUpdate, db: Session = Depends(get_db)):
+    """更新库存条目"""
+    item = db.query(PantryItem).filter(PantryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="库存条目不存在")
+    update = data.model_dump(exclude_unset=True)
+    for k, v in update.items():
+        setattr(item, k, v)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/pantry/{item_id}")
+def delete_pantry_item(item_id: int, db: Session = Depends(get_db)):
+    """删除库存条目"""
+    item = db.query(PantryItem).filter(PantryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="库存条目不存在")
+    db.delete(item)
+    db.commit()
+    return {"message": "已删除"}
+
+
+@router.post("/pantry/{item_id}/toggle")
+def toggle_pantry_in_stock(item_id: int, db: Session = Depends(get_db)):
+    """切换 in_stock 状态（用于购物清单勾选"已买到"）"""
+    item = db.query(PantryItem).filter(PantryItem.id == item_id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="库存条目不存在")
+    item.in_stock = not item.in_stock
+    db.commit()
+    db.refresh(item)
+    return {"in_stock": item.in_stock}
+
+
+@router.post("/pantry/from-shopping-list")
+def add_to_pantry_from_shopping(items: List[dict], db: Session = Depends(get_db)):
+    """从购物清单批量加入库存：items=[{name, amount, category}]"""
+    created = []
+    for it in items:
+        # 同名则更新，不新增
+        existing = db.query(PantryItem).filter(PantryItem.name == it["name"]).first()
+        if existing:
+            existing.in_stock = True
+            if it.get("amount"):
+                existing.amount = it["amount"]
+            created.append(existing.id)
+        else:
+            new = PantryItem(
+                name=it["name"],
+                amount=it.get("amount"),
+                category=it.get("category") or "其它",
+                in_stock=True
+            )
+            db.add(new)
+            db.flush()
+            created.append(new.id)
+    db.commit()
+    return {"created_ids": created, "count": len(created)}
 
 
 # 统计相关API

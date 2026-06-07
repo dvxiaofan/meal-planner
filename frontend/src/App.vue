@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
+import VoiceRecorder from '@/components/VoiceRecorder.vue'
 </script>
 
 <template>
@@ -7,6 +8,7 @@ import { NConfigProvider, NMessageProvider, NDialogProvider } from 'naive-ui'
     <NMessageProvider>
       <NDialogProvider>
         <router-view />
+        <VoiceRecorder />
       </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>

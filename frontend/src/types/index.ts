@@ -123,3 +123,44 @@ export interface AchievementsResponse {
   achievements: Achievement[]
   progress: Record<string, number>
 }
+
+// 周计划
+export interface WeeklyPlanItem {
+  id: number
+  week_start: string
+  day_of_week: number  // 1-7
+  meal_type: 'lunch' | 'dinner'
+  dish: Dish | null
+}
+
+export interface WeeklyPlanResponse {
+  week_start: string
+  items: WeeklyPlanItem[]
+}
+
+// 购物清单
+export interface ShoppingListItem {
+  name: string
+  amounts: string[]
+  type?: string
+  used_in: string[]
+}
+
+export interface ShoppingListResponse {
+  week_start: string
+  by_category: Record<string, ShoppingListItem[]>
+  items: ShoppingListItem[]
+}
+
+// 库存
+export interface PantryItem {
+  id: number
+  name: string
+  amount?: string
+  unit?: string
+  category?: string
+  note?: string
+  in_stock: boolean
+  created_at: string
+  updated_at: string
+}

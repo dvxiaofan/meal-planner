@@ -1,5 +1,9 @@
 import request from './request'
-import type { Dish, DishCreate, DishUpdate, RecommendResponse, MealRecord, DashboardStats, AchievementsResponse } from '@/types'
+import type {
+  Dish, DishCreate, DishUpdate, RecommendResponse, MealRecord,
+  DashboardStats, AchievementsResponse,
+  WeeklyPlanResponse, WeeklyPlanItem, ShoppingListResponse, PantryItem
+} from '@/types'
 
 // 菜品相关API
 export const dishApi = {
@@ -115,5 +119,50 @@ export const achievementApi = {
   },
   check() {
     return request.post<any, { newly_unlocked: Array<{ id: number; name: string; description?: string; icon?: string; category?: string }> }>('/achievements/check')
+  }
+}
+
+// 周计划API
+export const weeklyPlanApi = {
+  get(week_start?: string) {
+    return request.get<any, WeeklyPlanResponse>('/weekly-plan', {
+      params: week_start ? { week_start } : {}
+    })
+  },
+  generate(payload: { week_start?: string; replace?: boolean } = {}) {
+    return request.post<any, WeeklyPlanResponse>('/weekly-plan/generate', payload)
+  },
+  swap(planId: number, dishId: number) {
+    return request.patch<any, WeeklyPlanItem>(`/weekly-plan/${planId}`, { dish_id: dishId })
+  },
+  remove(planId: number) {
+    return request.delete(`/weekly-plan/${planId}`)
+  },
+  shoppingList(week_start?: string) {
+    return request.get<any, ShoppingListResponse>('/shopping-list', {
+      params: week_start ? { week_start } : {}
+    })
+  }
+}
+
+// 库存 API
+export const pantryApi = {
+  list(params?: { category?: string; in_stock?: boolean; search?: string }) {
+    return request.get<any, PantryItem[]>('/pantry', { params })
+  },
+  create(data: Omit<PantryItem, 'id' | 'created_at' | 'updated_at'>) {
+    return request.post<any, PantryItem>('/pantry', data)
+  },
+  update(id: number, data: Partial<PantryItem>) {
+    return request.put<any, PantryItem>(`/pantry/${id}`, data)
+  },
+  remove(id: number) {
+    return request.delete(`/pantry/${id}`)
+  },
+  toggleInStock(id: number) {
+    return request.post<any, { in_stock: boolean }>(`/pantry/${id}/toggle`)
+  },
+  addFromShoppingList(items: Array<{ name: string; amount?: string; category?: string }>) {
+    return request.post<any, { count: number; created_ids: number[] }>('/pantry/from-shopping-list', items)
   }
 }
