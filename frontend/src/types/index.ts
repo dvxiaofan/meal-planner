@@ -104,3 +104,22 @@ export interface DashboardStats {
     record_date?: string
   }>
 }
+
+// 成就
+export interface Achievement {
+  id: number
+  name: string
+  description?: string
+  icon?: string
+  category?: string
+  condition_type?: string
+  condition_value?: number
+  is_unlocked: boolean
+  unlocked_at?: string | null
+  current?: number
+}
+
+export interface AchievementsResponse {
+  achievements: Achievement[]
+  progress: Record<string, number>
+}

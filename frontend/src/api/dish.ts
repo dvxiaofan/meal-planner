@@ -1,5 +1,5 @@
 import request from './request'
-import type { Dish, DishCreate, DishUpdate, RecommendResponse, MealRecord, DashboardStats } from '@/types'
+import type { Dish, DishCreate, DishUpdate, RecommendResponse, MealRecord, DashboardStats, AchievementsResponse } from '@/types'
 
 // 菜品相关API
 export const dishApi = {
@@ -99,5 +99,21 @@ export const recordApi = {
 export const statsApi = {
   getDashboardStats() {
     return request.get<any, DashboardStats>('/stats/dashboard')
+  },
+  getTrend(days: number = 14) {
+    return request.get<any, { days: number; series: Array<{ date: string; count: number }> }>(
+      '/stats/trend',
+      { params: { days } }
+    )
+  }
+}
+
+// 成就相关API
+export const achievementApi = {
+  list() {
+    return request.get<any, AchievementsResponse>('/achievements')
+  },
+  check() {
+    return request.post<any, { newly_unlocked: Array<{ id: number; name: string; description?: string; icon?: string; category?: string }> }>('/achievements/check')
   }
 }

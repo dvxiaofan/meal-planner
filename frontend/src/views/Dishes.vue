@@ -18,6 +18,7 @@ const search = ref('')
 const categoryFilter = ref<string | null>(null)
 const tasteFilter = ref<string | null>(null)
 const favoriteOnly = ref(false)
+const includeDisabled = ref(false)
 const showCreateModal = ref(false)
 
 const categoryOptions = [
@@ -61,6 +62,10 @@ const filteredDishes = computed(() => {
 
   if (favoriteOnly.value) {
     result = result.filter(dish => dish.is_favorite)
+  }
+
+  if (!includeDisabled.value) {
+    result = result.filter(dish => dish.is_enabled)
   }
 
   return result
@@ -148,6 +153,10 @@ async function deleteDish(id: number, event: Event) {
         <NSpace align="center" :wrap="false">
           <span>只看收藏</span>
           <NSwitch v-model:value="favoriteOnly" />
+        </NSpace>
+        <NSpace align="center" :wrap="false">
+          <span>含已禁用</span>
+          <NSwitch v-model:value="includeDisabled" />
         </NSpace>
       </NSpace>
     </NCard>

@@ -292,20 +292,92 @@ class MealRecordService:
 
 class AchievementService:
     """成就服务"""
-    
+
+    # 成就定义（启动时种子写入）
+    DEFINITIONS = [
+        # 用餐类
+        {"name": "初入厨房", "description": "记录第一餐", "icon": "🍳", "category": "用餐", "condition_type": "meal_count", "condition_value": 1},
+        {"name": "小试身手", "description": "累计记录 10 餐", "icon": "🥢", "category": "用餐", "condition_type": "meal_count", "condition_value": 10},
+        {"name": "记录达人", "description": "累计记录 50 餐", "icon": "📝", "category": "用餐", "condition_type": "meal_count", "condition_value": 50},
+        {"name": "百菜斩", "description": "记录 100 道不同菜品", "icon": "🏆", "category": "用餐", "condition_type": "unique_dish_count", "condition_value": 100},
+        {"name": "连续一周", "description": "连续 7 天记录用餐", "icon": "📅", "category": "用餐", "condition_type": "consecutive_days", "condition_value": 7},
+        {"name": "连续一月", "description": "连续 30 天记录用餐", "icon": "🗓️", "category": "用餐", "condition_type": "consecutive_days", "condition_value": 30},
+        # 收藏类
+        {"name": "收藏家", "description": "收藏 20 道菜品", "icon": "⭐", "category": "收藏", "condition_type": "favorite_count", "condition_value": 20},
+        {"name": "美食收藏家", "description": "收藏 50 道菜品", "icon": "🌟", "category": "收藏", "condition_type": "favorite_count", "condition_value": 50},
+    ]
+
     def __init__(self, db: Session):
         self.db = db
-    
+
+    def seed_definitions(self):
+        """启动时种子写入成就定义（已存在则跳过）"""
+        for d in self.DEFINITIONS:
+            exists = self.db.query(Achievement).filter(Achievement.name == d["name"]).first()
+            if not exists:
+                self.db.add(Achievement(**d))
+        self.db.commit()
+
     def get_achievements(self) -> List[Achievement]:
-        """获取所有成就"""
-        return self.db.query(Achievement).all()
-    
+        return self.db.query(Achievement).order_by(Achievement.category, Achievement.condition_value).all()
+
     def get_unlocked_achievements(self) -> List[Achievement]:
-        """获取已解锁成就"""
         return self.db.query(Achievement).filter(Achievement.is_unlocked == True).all()
-    
-    def check_achievements(self):
-        """检查并解锁成就"""
-        # 这里实现成就检查逻辑
-        # 根据条件类型和值检查是否满足
-        pass
+
+    def get_progress_map(self) -> dict:
+        """返回每个 condition_type 的当前进度值"""
+        progress = {}
+        # 餐记录数
+        progress["meal_count"] = self.db.query(MealRecord).count()
+        # 不同菜品数
+        progress["unique_dish_count"] = self.db.query(MealRecord.dish_id).distinct().count()
+        # 收藏数
+        from ..models.dish import Dish
+        progress["favorite_count"] = self.db.query(Dish).filter(Dish.is_favorite == True).count()
+        # 连续天数（最长连续有记录的天数）
+        progress["consecutive_days"] = self._calc_consecutive_days()
+        return progress
+
+    def _calc_consecutive_days(self) -> int:
+        """从今天往前算，连续有记录的最大天数"""
+        from ..models.dish import Dish
+        dates = (
+            self.db.query(func.date(MealRecord.record_date).label("d"))
+            .distinct()
+            .order_by(desc("d"))
+            .all()
+        )
+        date_list = [d[0] for d in dates]
+        if not date_list:
+            return 0
+        # 必须包含今天或昨天才算"当前连续"
+        from datetime import date as _date
+        today = _date.today()
+        start = date_list[0]
+        if (today - start).days > 1:
+            return 0
+        # 连续计数
+        count = 1
+        for i in range(1, len(date_list)):
+            if (date_list[i - 1] - date_list[i]).days == 1:
+                count += 1
+            else:
+                break
+        return count
+
+    def check_achievements(self) -> List[Achievement]:
+        """检查并解锁满足条件的成就，返回本次新解锁的"""
+        progress = self.get_progress_map()
+        newly_unlocked: List[Achievement] = []
+        all_achievements = self.db.query(Achievement).all()
+        for ach in all_achievements:
+            if ach.is_unlocked:
+                continue
+            current = progress.get(ach.condition_type, 0)
+            if current >= ach.condition_value:
+                ach.is_unlocked = True
+                ach.unlocked_at = datetime.now()
+                newly_unlocked.append(ach)
+        if newly_unlocked:
+            self.db.commit()
+        return newly_unlocked

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, date
 import os
 import uuid
 from ..core.database import get_db
@@ -119,11 +119,12 @@ async def upload_dish_image(
 
 @router.post("/dishes/{dish_id}/favorite")
 def toggle_favorite(dish_id: int, db: Session = Depends(get_db)):
-    """切换收藏状态"""
+    """切换收藏状态，并触发成就检查"""
     service = DishService(db)
     dish = service.toggle_favorite(dish_id)
     if not dish:
         raise HTTPException(status_code=404, detail="菜品不存在")
+    AchievementService(db).check_achievements()
     return {"is_favorite": dish.is_favorite}
 
 
@@ -183,9 +184,12 @@ def get_records(
 
 @router.post("/records", response_model=MealRecordResponse)
 def create_record(record_data: MealRecordCreate, db: Session = Depends(get_db)):
-    """创建用餐记录"""
+    """创建用餐记录，并触发成就检查"""
     service = MealRecordService(db)
-    return service.create_record(record_data)
+    record = service.create_record(record_data)
+    # 触发成就检查（新解锁的本次不返回，前端轮询时展示）
+    AchievementService(db).check_achievements()
+    return record
 
 
 @router.get("/records/timeline", response_model=List[MealRecordResponse])
@@ -193,6 +197,54 @@ def get_timeline(limit: int = 50, db: Session = Depends(get_db)):
     """获取时间线（照片墙用）"""
     service = MealRecordService(db)
     return service.get_timeline(limit)
+
+
+# 成就相关API
+@router.get("/achievements")
+def list_achievements(db: Session = Depends(get_db)):
+    """获取所有成就（含解锁状态与当前进度）"""
+    service = AchievementService(db)
+    achs = service.get_achievements()
+    progress = service.get_progress_map()
+    return {
+        "achievements": [
+            {
+                **{
+                    "id": a.id,
+                    "name": a.name,
+                    "description": a.description,
+                    "icon": a.icon,
+                    "category": a.category,
+                    "condition_type": a.condition_type,
+                    "condition_value": a.condition_value,
+                    "is_unlocked": a.is_unlocked,
+                    "unlocked_at": a.unlocked_at.isoformat() if a.unlocked_at else None,
+                },
+                "current": progress.get(a.condition_type, 0),
+            }
+            for a in achs
+        ],
+        "progress": progress,
+    }
+
+
+@router.post("/achievements/check")
+def trigger_achievement_check(db: Session = Depends(get_db)):
+    """手动触发成就检查，返回本次新解锁的成就列表"""
+    service = AchievementService(db)
+    new = service.check_achievements()
+    return {
+        "newly_unlocked": [
+            {
+                "id": a.id,
+                "name": a.name,
+                "description": a.description,
+                "icon": a.icon,
+                "category": a.category,
+            }
+            for a in new
+        ]
+    }
 
 
 # 统计相关API
@@ -251,6 +303,36 @@ def get_dashboard_stats(db: Session = Depends(get_db)):
         "top_dishes": top_dishes_list,
         "recent_records": recent_records_list
     }
+
+
+# 趋势数据
+@router.get("/stats/trend")
+def get_stats_trend(days: int = 14, db: Session = Depends(get_db)):
+    """最近 N 天每天的用餐记录数（按 date 截断到天）"""
+    from ..models.dish import MealRecord
+
+    end_date = datetime.now().date()
+    start_date = end_date - timedelta(days=days - 1)
+
+    # SQL: 按 date(record_date) 分组
+    date_col = func.date(MealRecord.record_date)
+    rows = (
+        db.query(date_col.label("d"), func.count(MealRecord.id).label("c"))
+        .filter(date_col >= start_date)
+        .filter(date_col <= end_date)
+        .group_by("d")
+        .all()
+    )
+    by_date = {str(d): c for d, c in rows}
+
+    # 补齐缺失日期
+    series = []
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        ds = d.isoformat()
+        series.append({"date": ds, "count": by_date.get(ds, 0)})
+
+    return {"days": days, "series": series}
 
 
 # 导入func和desc

@@ -39,6 +39,12 @@ const router = createRouter({
           meta: { title: '美食转盘' }
         },
         {
+          path: 'mystery',
+          name: 'mystery',
+          component: () => import('@/views/Mystery.vue'),
+          meta: { title: '盲盒惊喜' }
+        },
+        {
           path: 'weekly-plan',
           name: 'weekly-plan',
           component: () => import('@/views/WeeklyPlan.vue'),

@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 from .core.config import settings
-from .core.database import init_db
+from .core.database import init_db, SessionLocal
 from .api.dishes import router as dishes_router
+from .services.dish_service import AchievementService
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -31,8 +32,14 @@ app.include_router(dishes_router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时初始化数据库"""
+    """应用启动时初始化数据库 + 种子成就定义"""
     init_db()
+    # 种子写入成就定义
+    db = SessionLocal()
+    try:
+        AchievementService(db).seed_definitions()
+    finally:
+        db.close()
     print(f"🍽️ {settings.APP_NAME} v{settings.APP_VERSION} 启动成功")
 
 
