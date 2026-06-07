@@ -292,7 +292,7 @@ meal-planner/
 
 ## 开发计划
 
-> **当前状态盘点 · 2026-06-07（v1.1 第 1-3 项已交付 · commit 1566aa3 · 已在 NAS 部署验证）**
+> **当前状态盘点 · 2026-06-07（v1.1 高/中档共 8/15 已交付 · commit 27b5f9d · NAS 部署验证）**
 > 图例：✅ 已完成 · 🚧 部分完成（详见备注）· ❌ 未开始
 
 ### Phase 1：基础框架（1-2天）— ✅ 100%
@@ -305,55 +305,55 @@ meal-planner/
 ### Phase 2：核心功能（3-5天）— ✅ 100%
 - ✅ 菜品列表 / 新增 / 删除
 - ✅ 智能推荐算法（daily / mood / random）
-- ✅ 菜品编辑（`DishDetail.vue` 编辑按钮接 `DishFormModal`；Dishes.vue 创建 modal 也升级支持）
+- ✅ 菜品编辑（`DishDetail.vue` 编辑按钮接 `DishFormModal`）
 - ✅ 图片上传（`ImageUploader.vue` 通用组件已接入 DishDetail 头部大图位 + Dishes 列表卡片小图位）
-- ✅ 食材与步骤管理（`DishFormModal.vue` 动态加/删 ingredients + steps 列表；后端 `DishUpdate` 支持整表替换）
+- ✅ 食材与步骤管理（`DishFormModal.vue` 动态表单 + 后端 `DishUpdate` 整表替换）
 
-### Phase 3：进阶功能（3-5天）— 🚧 15%
-- 🚧 转盘抽奖（`Wheel.vue` 有页面，rotation 累加与返回结果不对应 → 假转盘）
-- ❌ 盲盒翻牌组件（无路由、无页面）
-- ❌ 周计划生成（`WeeklyPlan.vue` 是 TODO 空壳）
+### Phase 3：进阶功能（3-5天）— 🚧 45%
+- ✅ 转盘抽奖（`Wheel.vue` 算法修正：指针落点 = 选中菜品）
+- ✅ 盲盒翻牌组件（`Mystery.vue` 3 张牌 3D 翻转动画）
+- ❌ 周计划生成（`WeeklyPlan.vue` 仍是 TODO 空壳）
 - ❌ 购物清单（无 API、无页面）
 
-### Phase 4：完善与优化（2-3天）— 🚧 50%
-- ✅ 用餐记录（`RecordMealModal.vue` 已接入 Home / DishDetail / Recommend；后端 API + store 完整）
-- ❌ 照片墙（`/records/timeline` API 有，前端无 UI）
-- 🚧 统计面板（后端 `/stats/dashboard` OK，前端未接 ECharts）
-- 🚧 响应式优化（仅 `DishDetail.vue` 写了 `@media`）
-- ❌ 成就系统（model + schema 有，`AchievementService.check_achievements` 是 `pass`）
+### Phase 4：完善与优化（2-3天）— 🚧 90%
+- ✅ 用餐记录（`RecordMealModal.vue` + 3 个入口 + `MealRecord` 全链路）
+- ✅ 照片墙（`Records.vue` Tab 切换列表 / 瀑布流照片墙）
+- ✅ 统计面板（`Stats.vue` 接 ECharts：分类 pie + 热门 bar + 14天趋势 line）
+- ✅ 响应式（`MainLayout` 顶部 header + 移动端汉堡菜单 + 各页面媒体查询）
+- ✅ 成就系统（`AchievementService` 完整实现 + 8 项种子 + 自动触发 + 进度条 UI）
 
 ### Phase 5：部署（1天）— ✅ 100%
 - ✅ Dockerfile 编写
 - ✅ docker-compose 配置
 - ✅ 部署到飞牛 NAS（commit `1bd834a` 修复 `host.docker.internal` 兼容性问题）
-- 🚧 测试与调试（暂无自动化测试）
+- 🚧 测试与调试（暂无自动化测试，smoke test 走 curl 验证）
 
 ---
 
 ## v1.1 增量需求（基于当前代码差距 · 2026-06-07）
 
-> **本次提交已完成 1-3 + 8 部分（4/15）**
+> **本次提交已完成 1-5、7-10、12-13（11/15）**
 
-### 🔥 高价值 · 短工时
-1. ✅ **用餐记录创建入口** — `RecordMealModal.vue` 已接入 Home / DishDetail / Recommend（commit 1566aa3）
-2. ✅ **菜品编辑功能** — `DishFormModal.vue` 复用组件，支持基础字段 + 动态 ingredients/steps（commit 1566aa3）
-3. ✅ **菜品图片上传 UI** — `ImageUploader.vue` 复用组件，已接入 DishDetail 头部 + Dishes 列表卡片（commit 1566aa3）
-4. ❌ **Stats 接 ECharts** — 分类分布用 pie 饼图、热门菜品用 bar 柱状图（依赖已装未用）
-5. ❌ **全局错误提示** — `frontend/src/api/request.ts` 响应拦截器接 NMessage，替换裸 `console.error`
+### 🔥 高价值 · 短工时 — ✅ 全部清零
+1. ✅ **用餐记录创建入口**（commit 1566aa3）
+2. ✅ **菜品编辑功能**（commit 1566aa3）
+3. ✅ **菜品图片上传 UI**（commit 1566aa3）
+4. ✅ **Stats 接 ECharts**（commit 83e9b2b）
+5. ✅ **全局错误提示**（commit 83e9b2b，request.ts 接 NMessage）
 
-### ⚡ 中价值 · 中等工时
-6. ❌ **周计划生成** — 前端可拖拽 / 后端按"近 7 天没吃 + 收藏加权"算法生成；自动汇总购物清单
-7. ❌ **盲盒翻牌页** — 新路由 `mystery.vue`，3 张牌翻转动画
-8. 🚧 **收藏 / 已禁用筛选** — 已加"只看收藏"开关（commit 1566aa3），**"包含已禁用"开关未加**
-9. ❌ **成就自动触发** — `create_record` 后 hook `AchievementService.check_achievements`；前端成就页加进度条
-10. ❌ **MainLayout 顶部 header** — logo + 今日日期 + 欢迎语（当前是裸侧边栏）
+### ⚡ 中价值 · 中等工时 — 4/5 完成
+6. ❌ **周计划生成** — 前端可拖拽 / 后端按"近 7 天没吃 + 收藏加权"算法生成
+7. ✅ **盲盒翻牌页**（commit 83e9b2b）
+8. ✅ **收藏 / 已禁用筛选**（commit 83e9b2b 补完"包含已禁用"）
+9. ✅ **成就自动触发**（commit 83e9b2b + bugfix 27b5f9d）
+10. ✅ **MainLayout 顶部 header**（commit 83e9b2b）
 
-### 🌱 长期打磨
-11. ❌ **菜品配图** — 接 [TheMealDB](https://www.themealdb.com/) 免费 API 自动搜（带缓存）
-12. ❌ **转盘算法修正** — 根据返回 `dish.id` 算指针落在哪个扇区
-13. ❌ **照片墙瀑布流视图** — Records 页面 Tab 切换"列表 / 照片墙"
-14. ❌ **食材库存（pantry）** — 新表，购物清单可勾"已买到"自动入库存
-15. ❌ **语音录入** — "今天吃了红烧肉" → 简单 nlu 匹配 `dish_id`
+### 🌱 长期打磨 — 2/5 完成
+11. ❌ **菜品配图**（TheMealDB API）
+12. ✅ **转盘算法修正**（commit 83e9b2b）
+13. ✅ **照片墙瀑布流视图**（commit 83e9b2b）
+14. ❌ **食材库存（pantry）**
+15. ❌ **语音录入**
 
 ---
 
