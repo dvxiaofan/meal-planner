@@ -37,6 +37,8 @@ export interface DishUpdate {
   is_enabled?: boolean
   is_favorite?: boolean
   description?: string
+  ingredients?: IngredientCreate[]
+  steps?: StepCreate[]
 }
 
 // 食材类型

@@ -83,15 +83,45 @@ class DishService:
         return dish
     
     def update_dish(self, dish_id: int, dish_data: DishUpdate) -> Optional[Dish]:
-        """更新菜品"""
+        """更新菜品。ingredients/steps 字段若传入则整表替换（先删后建），不传则保留。"""
         dish = self.get_dish(dish_id)
         if not dish:
             return None
-        
+
         update_data = dish_data.model_dump(exclude_unset=True)
+
+        # 关联表需要单独处理，不能直接 setattr
+        ingredients_payload = update_data.pop("ingredients", None)
+        steps_payload = update_data.pop("steps", None)
+
         for key, value in update_data.items():
             setattr(dish, key, value)
-        
+
+        if ingredients_payload is not None:
+            # 级联删除旧食材，再批量插入新的
+            for old in list(dish.ingredients):
+                self.db.delete(old)
+            self.db.flush()
+            for ing in ingredients_payload:
+                self.db.add(Ingredient(
+                    dish_id=dish.id,
+                    name=ing["name"],
+                    amount=ing.get("amount"),
+                    type=ing.get("type"),
+                ))
+
+        if steps_payload is not None:
+            for old in list(dish.steps):
+                self.db.delete(old)
+            self.db.flush()
+            for i, st in enumerate(steps_payload, start=1):
+                self.db.add(Step(
+                    dish_id=dish.id,
+                    step_number=st.get("step_number") or i,
+                    description=st["description"],
+                    duration=st.get("duration"),
+                ))
+
         self.db.commit()
         self.db.refresh(dish)
         return dish

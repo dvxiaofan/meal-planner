@@ -3,12 +3,21 @@ import { ref, onMounted } from 'vue'
 import { NCard, NButton, NSpace, NTag, NEmpty, NRadioGroup, NRadioButton } from 'naive-ui'
 import { useRecommendStore } from '@/stores'
 import type { Dish } from '@/types'
+import RecordMealModal from '@/components/RecordMealModal.vue'
 
 const recommendStore = useRecommendStore()
 
 const mealType = ref('lunch')
 const mood = ref('happy')
 const recommendDishes = ref<Dish[]>([])
+
+const showRecordModal = ref(false)
+const recordDish = ref<Dish | null>(null)
+
+function openRecord(dish: Dish) {
+  recordDish.value = dish
+  showRecordModal.value = true
+}
 
 const moodOptions = [
   { label: '😊 开心', value: 'happy' },
@@ -44,7 +53,7 @@ async function fetchMoodRecommend() {
 <template>
   <div class="page-container">
     <h1 class="page-title">智能推荐</h1>
-    
+
     <!-- 每日推荐 -->
     <NCard title="每日推荐" style="margin-bottom: 16px">
       <template #header-extra>
@@ -53,7 +62,7 @@ async function fetchMoodRecommend() {
           <NRadioButton value="dinner">晚餐</NRadioButton>
         </NRadioGroup>
       </template>
-      
+
       <div v-if="recommendDishes.length > 0" class="recommend-grid">
         <NCard v-for="dish in recommendDishes" :key="dish.id" class="dish-card">
           <div class="dish-image" v-if="dish.image_url">
@@ -68,16 +77,21 @@ async function fetchMoodRecommend() {
               <NTag v-if="dish.category" size="small">{{ dish.category }}</NTag>
               <NTag v-if="dish.taste" size="small" type="info">{{ dish.taste }}</NTag>
             </NSpace>
+            <div class="card-actions">
+              <NButton size="small" type="primary" @click="openRecord(dish)">
+                记录这餐
+              </NButton>
+            </div>
           </div>
         </NCard>
       </div>
       <NEmpty v-else description="暂无推荐" />
-      
+
       <template #action>
         <NButton @click="fetchDailyRecommend">换一批</NButton>
       </template>
     </NCard>
-    
+
     <!-- 心情推荐 -->
     <NCard title="心情推荐">
       <NSpace vertical>
@@ -92,10 +106,15 @@ async function fetchMoodRecommend() {
             </NRadioButton>
           </NSpace>
         </NRadioGroup>
-        
+
         <NButton type="primary" @click="fetchMoodRecommend">根据心情推荐</NButton>
       </NSpace>
     </NCard>
+
+    <RecordMealModal
+      v-model:show="showRecordModal"
+      :dish="recordDish"
+    />
   </div>
 </template>
 
@@ -139,5 +158,9 @@ async function fetchMoodRecommend() {
 .dish-info h3 {
   margin-bottom: 8px;
   font-size: 14px;
+}
+
+.card-actions {
+  margin-top: 8px;
 }
 </style>

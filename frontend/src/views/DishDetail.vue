@@ -1,17 +1,26 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useMessage } from 'naive-ui'
 import {
   NCard, NButton, NSpace, NTag, NEmpty, NDescriptions, NDescriptionsItem,
   NRate, NDivider, NList, NListItem, NThing
 } from 'naive-ui'
 import { useDishStore } from '@/stores'
+import RecordMealModal from '@/components/RecordMealModal.vue'
+import DishFormModal from '@/components/DishFormModal.vue'
+import ImageUploader from '@/components/ImageUploader.vue'
+import type { DishUpdate } from '@/types'
 
 const route = useRoute()
 const router = useRouter()
 const dishStore = useDishStore()
+const message = useMessage()
 
 const dishId = Number(route.params.id)
+
+const showRecordModal = ref(false)
+const showEditModal = ref(false)
 
 onMounted(async () => {
   if (dishId) {
@@ -23,8 +32,22 @@ function goBack() {
   router.back()
 }
 
-function goToEdit() {
-  // TODO: 实现编辑功能
+function openRecord() {
+  showRecordModal.value = true
+}
+
+function openEdit() {
+  showEditModal.value = true
+}
+
+async function handleEditSubmit(data: DishUpdate) {
+  try {
+    await dishStore.updateDish(dishId, data)
+    message.success('保存成功')
+    showEditModal.value = false
+  } catch {
+    message.error('保存失败，请重试')
+  }
 }
 </script>
 
@@ -35,11 +58,12 @@ function goToEdit() {
     <div v-if="dishStore.currentDish" class="dish-detail">
       <NCard>
         <div class="dish-header">
-          <div class="dish-image" v-if="dishStore.currentDish.image_url">
-            <img :src="dishStore.currentDish.image_url" :alt="dishStore.currentDish.name" />
-          </div>
-          <div class="dish-image placeholder" v-else>
-            🍽️
+          <div class="dish-image">
+            <ImageUploader
+              :dish-id="dishStore.currentDish.id"
+              :image-url="dishStore.currentDish.image_url"
+              size="large"
+            />
           </div>
           <div class="dish-basic">
             <h1>{{ dishStore.currentDish.name }}</h1>
@@ -51,7 +75,8 @@ function goToEdit() {
               {{ dishStore.currentDish.description }}
             </p>
             <NSpace>
-              <NButton type="primary" @click="goToEdit">编辑</NButton>
+              <NButton type="primary" @click="openEdit">编辑</NButton>
+              <NButton @click="openRecord">记录这餐</NButton>
             </NSpace>
           </div>
         </div>
@@ -120,6 +145,18 @@ function goToEdit() {
     </div>
     
     <NEmpty v-else description="菜品不存在" />
+
+    <RecordMealModal
+      v-model:show="showRecordModal"
+      :dish="dishStore.currentDish"
+    />
+
+    <DishFormModal
+      v-if="dishStore.currentDish"
+      v-model:show="showEditModal"
+      :dish="dishStore.currentDish"
+      @submit="handleEditSubmit"
+    />
   </div>
 </template>
 

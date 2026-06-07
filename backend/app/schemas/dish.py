@@ -65,6 +65,9 @@ class DishUpdate(BaseModel):
     is_enabled: Optional[bool] = None
     is_favorite: Optional[bool] = None
     description: Optional[str] = None
+    # 若传入则整表替换；不传则保持原状
+    ingredients: Optional[List[IngredientCreate]] = None
+    steps: Optional[List[StepCreate]] = None
 
 
 class DishResponse(DishBase):

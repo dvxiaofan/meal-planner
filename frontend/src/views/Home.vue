@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { NCard, NGrid, NGi, NStatistic, NButton, NSpace, NTag, NEmpty } from 'naive-ui'
 import { useStatsStore, useRecommendStore } from '@/stores'
 import type { Dish } from '@/types'
+import RecordMealModal from '@/components/RecordMealModal.vue'
 
 const router = useRouter()
 const statsStore = useStatsStore()
@@ -11,6 +12,14 @@ const recommendStore = useRecommendStore()
 
 const todayRecommend = ref<Dish[]>([])
 const loading = ref(false)
+
+const showRecordModal = ref(false)
+const recordDish = ref<Dish | null>(null)
+
+function openRecord(dish: Dish) {
+  recordDish.value = dish
+  showRecordModal.value = true
+}
 
 onMounted(async () => {
   loading.value = true
@@ -43,7 +52,7 @@ function goToRecords() {
 <template>
   <div class="page-container">
     <h1 class="page-title">欢迎使用食光 🍽️</h1>
-    
+
     <!-- 统计卡片 -->
     <NGrid :cols="4" :x-gap="16" :y-gap="16" style="margin-bottom: 24px">
       <NGi>
@@ -73,7 +82,7 @@ function goToRecords() {
       <template #header-extra>
         <NButton text type="primary" @click="goToRecommend">查看更多</NButton>
       </template>
-      
+
       <div v-if="todayRecommend.length > 0" class="recommend-list">
         <NCard v-for="dish in todayRecommend" :key="dish.id" class="dish-card">
           <div class="dish-info">
@@ -82,6 +91,11 @@ function goToRecords() {
               <NTag v-if="dish.category" size="small">{{ dish.category }}</NTag>
               <NTag v-if="dish.taste" size="small" type="info">{{ dish.taste }}</NTag>
             </NSpace>
+            <div class="card-actions">
+              <NButton size="small" type="primary" @click="openRecord(dish)">
+                记录这餐
+              </NButton>
+            </div>
           </div>
         </NCard>
       </div>
@@ -96,6 +110,11 @@ function goToRecords() {
         <NButton @click="goToRecords">用餐记录</NButton>
       </NSpace>
     </NCard>
+
+    <RecordMealModal
+      v-model:show="showRecordModal"
+      :dish="recordDish"
+    />
   </div>
 </template>
 
@@ -107,7 +126,6 @@ function goToRecords() {
 }
 
 .dish-card {
-  cursor: pointer;
   transition: transform 0.2s;
 }
 
@@ -118,5 +136,9 @@ function goToRecords() {
 .dish-info h3 {
   margin-bottom: 8px;
   font-size: 16px;
+}
+
+.card-actions {
+  margin-top: 12px;
 }
 </style>
