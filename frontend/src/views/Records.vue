@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { NCard, NEmpty, NList, NListItem, NThing, NTag, NRate, NTabs, NTabPane, NSpin, NButton, NImage } from 'naive-ui'
+import { NCard, NEmpty, NList, NListItem, NThing, NTag, NRate, NTabs, NTabPane, NSpin, NButton, NImage, NIcon, NUpload, useMessage } from 'naive-ui'
+import { CameraOutline } from '@vicons/ionicons5'
+import { recordApi, dishApi } from '@/api'
 import { useRecordStore } from '@/stores'
 import type { MealRecord } from '@/types'
 
 const recordStore = useRecordStore()
 const router = useRouter()
+const message = useMessage()
 const activeTab = ref('list')
 const loading = ref(false)
+const uploadingFor = ref<number | null>(null)
 
 const photos = computed<MealRecord[]>(() =>
   recordStore.records.filter(r => r.photo_url)
@@ -32,6 +36,36 @@ function formatDate(dateStr: string) {
 
 function goToDish(dishId?: number) {
   if (dishId) router.push({ name: 'dish-detail', params: { id: dishId } })
+}
+
+async function onPhotoSelect(recordId: number, options: { fileList: Array<{ file: File }> }) {
+  const file = options.fileList[0]?.file
+  if (!file) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    message.error('仅支持 JPG / PNG / WebP')
+    return false
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    message.error('图片不能超过 5MB')
+    return false
+  }
+  uploadingFor.value = recordId
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    const { photo_url } = await recordApi.uploadPhoto(recordId, form)
+    // 更新本地状态
+    const r = recordStore.records.find(x => x.id === recordId)
+    if (r) r.photo_url = photo_url
+    const tr = recordStore.timeline.find(x => x.id === recordId)
+    if (tr) tr.photo_url = photo_url
+    message.success('照片已上传')
+  } catch {
+    // 拦截器处理
+  } finally {
+    uploadingFor.value = null
+  }
+  return false  // 阻止 NUpload 默认上传
 }
 
 // 合并：时间线按日期降序
@@ -77,9 +111,26 @@ const recordsByDate = computed(() => {
                             {{ record.meal_type === 'lunch' ? '午餐' : '晚餐' }}
                           </NTag>
                           <NRate v-if="record.rating" :value="record.rating" readonly size="small" />
-                          <NTag v-if="record.photo_url" size="small" type="warning">📷 有照片</NTag>
+                          <NUpload
+                            :show-file-list="false"
+                            accept="image/jpeg,image/png,image/webp"
+                            @change="(o: any) => onPhotoSelect(record.id, o)"
+                          >
+                            <NButton
+                              size="tiny"
+                              :loading="uploadingFor === record.id"
+                              :type="record.photo_url ? 'success' : 'default'"
+                              ghost
+                            >
+                              <template #icon><NIcon :component="CameraOutline" /></template>
+                              {{ record.photo_url ? '换照片' : '传照片' }}
+                            </NButton>
+                          </NUpload>
                         </NSpace>
                         <p v-if="record.note" class="note">{{ record.note }}</p>
+                        <div v-if="record.photo_url" class="photo-thumb">
+                          <NImage :src="record.photo_url" :alt="record.dish?.name" object-fit="cover" />
+                        </div>
                       </template>
                     </NThing>
                   </NListItem>
@@ -156,6 +207,18 @@ const recordsByDate = computed(() => {
   color: #666;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.photo-thumb {
+  margin-top: 8px;
+  max-width: 240px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.photo-thumb :deep(img) {
+  width: 100%;
+  display: block;
 }
 
 /* 瀑布流 */

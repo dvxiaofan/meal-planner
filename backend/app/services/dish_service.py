@@ -177,7 +177,7 @@ class RecommendService:
         self.db = db
     
     def get_daily_recommend(self, meal_type: str = "lunch") -> List[Dish]:
-        """每日推荐"""
+        """每日推荐：收藏 2x + 高评分 2x + 最近 7 天没吃排除"""
         # 获取最近N天内吃过的菜品ID
         recent_date = datetime.now() - timedelta(days=settings.RECENT_DAYS)
         recent_dish_ids = (
@@ -187,26 +187,40 @@ class RecommendService:
             .all()
         )
         recent_dish_ids = [id for id, in recent_dish_ids]
-        
+
         # 查询可用菜品，排除最近吃过的
         query = (
             self.db.query(Dish)
             .filter(Dish.is_enabled == True)
             .filter(Dish.id.notin_(recent_dish_ids) if recent_dish_ids else True)
         )
-        
         dishes = query.all()
-        
         if len(dishes) <= settings.RECOMMEND_COUNT:
             return dishes
-        
-        # 加权随机：收藏的菜品权重更高
+
+        # 计算每道菜的平均评分
+        from sqlalchemy import func as _func
+        avg_ratings = dict(
+            self.db.query(MealRecord.dish_id, _func.avg(MealRecord.rating))
+            .filter(MealRecord.rating.isnot(None))
+            .group_by(MealRecord.dish_id)
+            .all()
+        )
+
+        # 加权：favorite 2x，rating>=4 额外 2x，rating<=2 降为 0.5x
         weights = []
         for dish in dishes:
-            weight = 2 if dish.is_favorite else 1
-            weights.append(weight)
-        
-        # 随机选择
+            w = 1
+            if dish.is_favorite:
+                w *= 2
+            avg = avg_ratings.get(dish.id)
+            if avg is not None:
+                if avg >= 4:
+                    w *= 2
+                elif avg <= 2:
+                    w *= 0.5
+            weights.append(max(0.1, w))
+
         selected = random.choices(dishes, weights=weights, k=settings.RECOMMEND_COUNT)
         return selected
     
@@ -305,7 +319,15 @@ class AchievementService:
         # 收藏类
         {"name": "收藏家", "description": "收藏 20 道菜品", "icon": "⭐", "category": "收藏", "condition_type": "favorite_count", "condition_value": 20},
         {"name": "美食收藏家", "description": "收藏 50 道菜品", "icon": "🌟", "category": "收藏", "condition_type": "favorite_count", "condition_value": 50},
+        # 心情类
+        {"name": "心情达人", "description": "使用 5 种不同心情推荐", "icon": "😊", "category": "心情", "condition_type": "distinct_mood_count", "condition_value": 5},
+        {"name": "全心情解锁", "description": "解锁所有心情推荐", "icon": "🌈", "category": "心情", "condition_type": "all_moods_used", "condition_value": 1},
+        # 推荐类
+        {"name": "转盘达人", "description": "使用美食转盘 50 次", "icon": "🎡", "category": "推荐", "condition_type": "wheel_count", "condition_value": 50},
+        {"name": "盲盒收藏家", "description": "使用盲盒 30 次", "icon": "🎁", "category": "推荐", "condition_type": "mystery_count", "condition_value": 30},
     ]
+
+    MOOD_KEYS = ["happy", "tired", "lazy", "spicy", "healthy"]
 
     def __init__(self, db: Session):
         self.db = db
@@ -326,17 +348,41 @@ class AchievementService:
 
     def get_progress_map(self) -> dict:
         """返回每个 condition_type 的当前进度值"""
+        from ..models.dish import Dish, UsageCounter
         progress = {}
-        # 餐记录数
         progress["meal_count"] = self.db.query(MealRecord).count()
-        # 不同菜品数
         progress["unique_dish_count"] = self.db.query(MealRecord.dish_id).distinct().count()
-        # 收藏数
-        from ..models.dish import Dish
         progress["favorite_count"] = self.db.query(Dish).filter(Dish.is_favorite == True).count()
-        # 连续天数（最长连续有记录的天数）
         progress["consecutive_days"] = self._calc_consecutive_days()
+        # 使用次数
+        wheel = self._get_usage_count("wheel")
+        mystery = self._get_usage_count("mystery")
+        progress["wheel_count"] = wheel
+        progress["mystery_count"] = mystery
+        # 心情统计
+        mood_counts = {m: self._get_usage_count(f"mood_{m}") for m in self.MOOD_KEYS}
+        distinct = sum(1 for c in mood_counts.values() if c > 0)
+        progress["distinct_mood_count"] = distinct
+        progress["all_moods_used"] = 1 if distinct == len(self.MOOD_KEYS) else 0
         return progress
+
+    def _get_usage_count(self, key: str) -> int:
+        from ..models.dish import UsageCounter
+        row = self.db.query(UsageCounter).filter(UsageCounter.key == key).first()
+        return row.count if row else 0
+
+    def increment_usage(self, key: str, delta: int = 1) -> int:
+        """原子地 +1（首次创建），返回新值"""
+        from ..models.dish import UsageCounter
+        row = self.db.query(UsageCounter).filter(UsageCounter.key == key).first()
+        if not row:
+            row = UsageCounter(key=key, count=delta)
+            self.db.add(row)
+        else:
+            row.count += delta
+            row.updated_at = datetime.now()
+        self.db.commit()
+        return row.count
 
     def _calc_consecutive_days(self) -> int:
         """从今天往前算，连续有记录的最大天数"""
@@ -509,6 +555,30 @@ class WeeklyPlanService:
         self.db.commit()
         self.db.refresh(plan)
         dish = self.db.query(Dish).filter(Dish.id == new_dish_id).first()
+        return {
+            "id": plan.id,
+            "week_start": plan.week_start.isoformat(),
+            "day_of_week": plan.day_of_week,
+            "meal_type": plan.meal_type,
+            "dish": self._dish_summary(dish) if dish else None
+        }
+
+    def swap_positions(self, plan_id_1: int, plan_id_2: int) -> tuple[dict, dict]:
+        """互换两个餐位的 day_of_week + meal_type（用于拖拽）"""
+        from ..models.dish import WeeklyPlan
+        a = self.db.query(WeeklyPlan).filter(WeeklyPlan.id == plan_id_1).first()
+        b = self.db.query(WeeklyPlan).filter(WeeklyPlan.id == plan_id_2).first()
+        if not a or not b:
+            return None, None
+        a.day_of_week, b.day_of_week = b.day_of_week, a.day_of_week
+        a.meal_type, b.meal_type = b.meal_type, a.meal_type
+        self.db.commit()
+        self.db.refresh(a)
+        self.db.refresh(b)
+        return self._plan_to_dict(a), self._plan_to_dict(b)
+
+    def _plan_to_dict(self, plan) -> dict:
+        dish = self.db.query(Dish).filter(Dish.id == plan.dish_id).first()
         return {
             "id": plan.id,
             "week_start": plan.week_start.isoformat(),

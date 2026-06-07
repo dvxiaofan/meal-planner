@@ -182,6 +182,7 @@ class PantryItemBase(BaseModel):
     unit: Optional[str] = Field(None, max_length=20)
     category: Optional[str] = Field(None, max_length=50)
     note: Optional[str] = None
+    expires_at: Optional[datetime] = None
     in_stock: bool = True
 
 
@@ -195,6 +196,7 @@ class PantryItemUpdate(BaseModel):
     unit: Optional[str] = Field(None, max_length=20)
     category: Optional[str] = Field(None, max_length=50)
     note: Optional[str] = None
+    expires_at: Optional[datetime] = None
     in_stock: Optional[bool] = None
 
 

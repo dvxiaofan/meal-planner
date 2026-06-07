@@ -96,6 +96,14 @@ export const recordApi = {
     return request.get<any, MealRecord[]>('/records/timeline', {
       params: { limit }
     })
+  },
+
+  uploadPhoto(recordId: number, formData: FormData) {
+    return request.post<any, { photo_url: string }>(
+      `/records/${recordId}/photo`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
   }
 }
 
@@ -109,6 +117,14 @@ export const statsApi = {
       '/stats/trend',
       { params: { days } }
     )
+  },
+  getBreakdown() {
+    return request.get<any, {
+      by_taste: Record<string, number>
+      by_category_records: Record<string, number>
+      weekly: Array<{ label: string; count: number }>
+      category_trend: { dates: string[]; series: Array<{ name: string; data: number[] }> }
+    }>('/stats/breakdown')
   }
 }
 
@@ -134,6 +150,11 @@ export const weeklyPlanApi = {
   },
   swap(planId: number, dishId: number) {
     return request.patch<any, WeeklyPlanItem>(`/weekly-plan/${planId}`, { dish_id: dishId })
+  },
+  swapPositions(planId1: number, planId2: number) {
+    return request.post<any, { items: WeeklyPlanItem[] }>('/weekly-plan/swap-positions', {
+      plan_id_1: planId1, plan_id_2: planId2
+    })
   },
   remove(planId: number) {
     return request.delete(`/weekly-plan/${planId}`)
@@ -164,5 +185,17 @@ export const pantryApi = {
   },
   addFromShoppingList(items: Array<{ name: string; amount?: string; category?: string }>) {
     return request.post<any, { count: number; created_ids: number[] }>('/pantry/from-shopping-list', items)
+  }
+}
+
+// 使用次数 API（盲盒/转盘/心情）
+export const usageApi = {
+  increment(key: string, delta: number = 1) {
+    return request.post<any, { key: string; count: number; newly_unlocked: Array<{ id: number; name: string }> }>(
+      '/usage/increment', { key, delta }
+    )
+  },
+  stats() {
+    return request.get<any, { stats: Array<{ key: string; count: number }> }>('/usage/stats')
   }
 }

@@ -160,6 +160,7 @@ export interface PantryItem {
   unit?: string
   category?: string
   note?: string
+  expires_at?: string | null
   in_stock: boolean
   created_at: string
   updated_at: string

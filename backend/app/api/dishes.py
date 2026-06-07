@@ -156,6 +156,11 @@ def get_mood_recommend(mood: str, db: Session = Depends(get_db)):
     """心情推荐"""
     service = RecommendService(db)
     dishes = service.get_mood_recommend(mood)
+    # 累计该心情使用次数 + 触发成就检查
+    if mood in AchievementService.MOOD_KEYS:
+        ach_svc = AchievementService(db)
+        ach_svc.increment_usage(f"mood_{mood}")
+        ach_svc.check_achievements()
     return {"dishes": dishes, "meal_type": "mood"}
 
 
@@ -166,7 +171,37 @@ def get_random_dish(db: Session = Depends(get_db)):
     dish = service.get_random_dish()
     if not dish:
         raise HTTPException(status_code=404, detail="没有可用的菜品")
+    # 累计转盘使用次数 + 触发成就检查
+    ach_svc = AchievementService(db)
+    ach_svc.increment_usage("wheel")
+    ach_svc.check_achievements()
     return dish
+
+
+# 使用次数统计（盲盒/自定义事件）
+@router.post("/usage/increment")
+def increment_usage(payload: dict, db: Session = Depends(get_db)):
+    """+1 使用次数（用于盲盒/其他自定义事件），触发成就检查"""
+    key = payload.get("key")
+    if not key or not isinstance(key, str) or len(key) > 50:
+        raise HTTPException(status_code=400, detail="key 必须是非空字符串且 ≤50 字符")
+    delta = int(payload.get("delta", 1))
+    svc = AchievementService(db)
+    new_count = svc.increment_usage(key, delta)
+    newly = svc.check_achievements()
+    return {
+        "key": key,
+        "count": new_count,
+        "newly_unlocked": [{"id": a.id, "name": a.name} for a in newly]
+    }
+
+
+@router.get("/usage/stats")
+def get_usage_stats(db: Session = Depends(get_db)):
+    """获取所有使用次数"""
+    from ..models.dish import UsageCounter
+    rows = db.query(UsageCounter).all()
+    return {"stats": [{"key": r.key, "count": r.count} for r in rows]}
 
 
 # 用餐记录相关API
@@ -198,6 +233,55 @@ def get_timeline(limit: int = 50, db: Session = Depends(get_db)):
     """获取时间线（照片墙用）"""
     service = MealRecordService(db)
     return service.get_timeline(limit)
+
+
+@router.post("/records/{record_id}/photo")
+async def upload_record_photo(
+    record_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """为某条用餐记录上传照片"""
+    from ..models.dish import MealRecord
+
+    record = db.query(MealRecord).filter(MealRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    allowed_types = ["image/jpeg", "image/png", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="只支持 JPG / PNG / WebP 格式")
+
+    content = await file.read()
+    if len(content) > settings.MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="文件大小不能超过 5MB")
+
+    # 存到 uploads/records/{id}/
+    record_dir = os.path.join(settings.UPLOAD_DIR, "records", str(record_id))
+    os.makedirs(record_dir, exist_ok=True)
+    ext = (file.filename or "img.jpg").split(".")[-1].lower() or "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = os.path.join(record_dir, filename)
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    photo_url = f"/uploads/records/{record_id}/{filename}"
+    record.photo_url = photo_url
+    db.commit()
+    db.refresh(record)
+    return {"photo_url": photo_url}
+
+
+@router.delete("/records/{record_id}/photo")
+def delete_record_photo(record_id: int, db: Session = Depends(get_db)):
+    """删除某条记录的关联照片（仅清字段，不删文件）"""
+    from ..models.dish import MealRecord
+    record = db.query(MealRecord).filter(MealRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    record.photo_url = None
+    db.commit()
+    return {"message": "已清除照片"}
 
 
 # 成就相关API
@@ -306,6 +390,20 @@ def delete_meal(plan_id: int, db: Session = Depends(get_db)):
     if not service.remove_meal(plan_id):
         raise HTTPException(status_code=404, detail="餐位不存在")
     return {"message": "已删除"}
+
+
+@router.post("/weekly-plan/swap-positions")
+def swap_positions(payload: dict, db: Session = Depends(get_db)):
+    """互换两个餐位的（day_of_week, meal_type），用于前端拖拽"""
+    a = payload.get("plan_id_1")
+    b = payload.get("plan_id_2")
+    if not a or not b:
+        raise HTTPException(status_code=400, detail="缺少 plan_id_1 / plan_id_2")
+    service = WeeklyPlanService(db)
+    p1, p2 = service.swap_positions(int(a), int(b))
+    if not p1 or not p2:
+        raise HTTPException(status_code=404, detail="餐位不存在")
+    return {"items": [p1, p2]}
 
 
 @router.get("/shopping-list")
@@ -499,6 +597,81 @@ def get_stats_trend(days: int = 14, db: Session = Depends(get_db)):
         series.append({"date": ds, "count": by_date.get(ds, 0)})
 
     return {"days": days, "series": series}
+
+
+@router.get("/stats/breakdown")
+def get_stats_breakdown(db: Session = Depends(get_db)):
+    """二阶统计：口味/分类分布 + 周对比 + 分类趋势"""
+    from ..models.dish import MealRecord, Dish
+
+    # 口味分布
+    taste_rows = (
+        db.query(Dish.taste, func.count(MealRecord.id).label("c"))
+        .join(MealRecord, MealRecord.dish_id == Dish.id)
+        .filter(Dish.taste.isnot(None))
+        .group_by(Dish.taste)
+        .all()
+    )
+    by_taste = {t or "未分类": c for t, c in taste_rows}
+
+    # 分类分布（餐记录层面）
+    cat_rows = (
+        db.query(Dish.category, func.count(MealRecord.id).label("c"))
+        .join(MealRecord, MealRecord.dish_id == Dish.id)
+        .group_by(Dish.category)
+        .all()
+    )
+    by_category_records = {cat: c for cat, c in cat_rows}
+
+    # 过去 4 周每周记录数
+    today = date.today()
+    weekly: list = []
+    for w in range(3, -1, -1):
+        end = today - timedelta(days=w * 7)
+        start = end - timedelta(days=6)
+        c = (
+            db.query(func.count(MealRecord.id))
+            .filter(func.date(MealRecord.record_date) >= start)
+            .filter(func.date(MealRecord.record_date) <= end)
+            .scalar()
+        ) or 0
+        weekly.append({"label": f"{start.month}/{start.day}", "count": c})
+
+    # 过去 30 天分类趋势
+    days_30 = 30
+    start_30 = today - timedelta(days=days_30 - 1)
+    date_col = func.date(MealRecord.record_date)
+    cat_date_rows = (
+        db.query(Dish.category, date_col.label("d"), func.count(MealRecord.id).label("c"))
+        .join(MealRecord, MealRecord.dish_id == Dish.id)
+        .filter(date_col >= start_30)
+        .filter(date_col <= today)
+        .group_by(Dish.category, date_col)
+        .all()
+    )
+    # 组织：category -> date -> count
+    cat_by_date: dict = {}
+    for cat, d, c in cat_date_rows:
+        ds = str(d)
+        cat_by_date.setdefault(cat, {})[ds] = c
+    # 补齐日期
+    dates = [(start_30 + timedelta(days=i)).isoformat() for i in range(days_30)]
+    series = []
+    for cat, by_date in cat_by_date.items():
+        series.append({
+            "name": cat,
+            "data": [by_date.get(d, 0) for d in dates]
+        })
+
+    return {
+        "by_taste": by_taste,
+        "by_category_records": by_category_records,
+        "weekly": weekly,
+        "category_trend": {
+            "dates": [d[5:] for d in dates],  # MM-DD
+            "series": series
+        }
+    }
 
 
 # 导入func和desc

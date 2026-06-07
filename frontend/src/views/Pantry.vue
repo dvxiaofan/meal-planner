@@ -2,9 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   NCard, NButton, NSpace, NInput, NSelect, NTag, NEmpty, NSpin,
-  NModal, NForm, NFormItem, NInputNumber, NPopconfirm, NDivider, useMessage, NGrid, NGi
+  NModal, NForm, NFormItem, NInputNumber, NPopconfirm, NDivider,
+  NDatePicker, NAlert, useMessage, NGrid, NGi
 } from 'naive-ui'
-import { AddOutline, TrashOutline, CheckmarkCircle, EllipsisHorizontalCircleOutline } from '@vicons/ionicons5'
+import { AddOutline, TrashOutline, CheckmarkCircle, EllipsisHorizontalCircleOutline, AlertCircleOutline } from '@vicons/ionicons5'
 import { pantryApi } from '@/api'
 import type { PantryItem } from '@/types'
 
@@ -13,7 +14,7 @@ const loading = ref(false)
 const items = ref<PantryItem[]>([])
 const search = ref('')
 const categoryFilter = ref<string | null>(null)
-const stockFilter = ref<string | null>('in_stock') // 'in_stock' | 'all' | 'out'
+const stockFilter = ref<string | null>('in_stock')
 const showEditModal = ref(false)
 const editing = ref<PantryItem | null>(null)
 const isCreate = ref(false)
@@ -24,8 +25,27 @@ const form = ref({
   unit: '',
   category: null as string | null,
   note: '',
+  expires_at: null as number | null,
   in_stock: true
 })
+
+// 过期状态：expired / expiring_soon / ok / none
+function expiryStatus(item: PantryItem): { level: 'expired' | 'soon' | 'ok' | 'none'; days: number | null } {
+  if (!item.expires_at) return { level: 'none', days: null }
+  const now = Date.now()
+  const exp = new Date(item.expires_at).getTime()
+  const days = Math.ceil((exp - now) / 86400000)
+  if (days < 0) return { level: 'expired', days }
+  if (days <= 3) return { level: 'soon', days }
+  return { level: 'ok', days }
+}
+
+const expiringSoon = computed(() =>
+  items.value.filter(i => {
+    const s = expiryStatus(i)
+    return (s.level === 'expired' || s.level === 'soon') && i.in_stock
+  })
+)
 
 const categoryOptions = [
   { label: '蔬菜', value: '蔬菜' },
@@ -88,7 +108,7 @@ async function fetchAll() {
 function openCreate() {
   isCreate.value = true
   editing.value = null
-  form.value = { name: '', amount: '', unit: '', category: null, note: '', in_stock: true }
+  form.value = { name: '', amount: '', unit: '', category: null, note: '', expires_at: null, in_stock: true }
   showEditModal.value = true
 }
 
@@ -101,6 +121,7 @@ function openEdit(item: PantryItem) {
     unit: item.unit || '',
     category: item.category || null,
     note: item.note || '',
+    expires_at: item.expires_at ? new Date(item.expires_at).getTime() : null,
     in_stock: item.in_stock
   }
   showEditModal.value = true
@@ -117,6 +138,7 @@ async function saveItem() {
     unit: form.value.unit.trim() || undefined,
     category: form.value.category || undefined,
     note: form.value.note.trim() || undefined,
+    expires_at: form.value.expires_at ? new Date(form.value.expires_at).toISOString() : undefined,
     in_stock: form.value.in_stock
   }
   try {
@@ -184,6 +206,30 @@ onMounted(fetchAll)
         </NGi>
       </NGrid>
 
+      <!-- 过期预警条 -->
+      <NAlert
+        v-if="expiringSoon.length > 0"
+        type="warning"
+        :show-icon="true"
+        closable
+      >
+        <template #header>
+          ⚠️ {{ expiringSoon.length }} 项食材快过期
+        </template>
+        <NSpace size="small" :wrap="true" style="margin-top: 4px">
+          <NTag
+            v-for="i in expiringSoon.slice(0, 5)"
+            :key="i.id"
+            :type="expiryStatus(i).level === 'expired' ? 'error' : 'warning'"
+            size="small"
+          >
+            {{ i.name }}
+            <span v-if="expiryStatus(i).level === 'expired'">已过期</span>
+            <span v-else>剩 {{ expiryStatus(i).days }} 天</span>
+          </NTag>
+        </NSpace>
+      </NAlert>
+
       <!-- 筛选栏 -->
       <NCard>
         <NSpace :wrap="true" align="center">
@@ -220,7 +266,19 @@ onMounted(fetchAll)
             <NGi v-for="item in group.list" :key="item.id" span="4 m:2 l:1">
               <div class="pantry-item" :class="{ 'out-of-stock': !item.in_stock }">
                 <div class="item-header">
-                  <div class="item-name">{{ item.name }}</div>
+                  <div class="item-name">
+                    {{ item.name }}
+                    <NTag
+                      v-if="expiryStatus(item).level === 'expired'"
+                      type="error"
+                      size="tiny"
+                    >已过期</NTag>
+                    <NTag
+                      v-else-if="expiryStatus(item).level === 'soon'"
+                      type="warning"
+                      size="tiny"
+                    >剩 {{ expiryStatus(item).days }} 天</NTag>
+                  </div>
                   <NTag v-if="!item.in_stock" type="warning" size="tiny">已用完</NTag>
                 </div>
                 <div class="item-amount" v-if="item.amount || item.unit">
@@ -276,6 +334,15 @@ onMounted(fetchAll)
         </NFormItem>
         <NFormItem label="备注">
           <NInput v-model:value="form.note" type="textarea" placeholder="选填" :autosize="{ minRows: 1, maxRows: 3 }" />
+        </NFormItem>
+        <NFormItem label="过期时间">
+          <NDatePicker
+            v-model:value="form.expires_at"
+            type="date"
+            clearable
+            placeholder="选填，过期前 3 天会预警"
+            style="width: 100%"
+          />
         </NFormItem>
         <NFormItem label="状态">
           <NSpace>

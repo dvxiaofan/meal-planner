@@ -9,6 +9,7 @@ import {
   TitleComponent, TooltipComponent, LegendComponent, GridComponent
 } from 'echarts/components'
 import { useStatsStore } from '@/stores'
+import { statsApi } from '@/api/dish'
 
 use([
   CanvasRenderer,
@@ -18,6 +19,14 @@ use([
 
 const statsStore = useStatsStore()
 const loading = ref(false)
+
+interface Breakdown {
+  by_taste: Record<string, number>
+  by_category_records: Record<string, number>
+  weekly: Array<{ label: string; count: number }>
+  category_trend: { dates: string[]; series: Array<{ name: string; data: number[] }> }
+}
+const breakdown = ref<Breakdown | null>(null)
 
 const categoryOption = computed(() => {
   const dist = statsStore.dashboard?.category_distribution ?? {}
@@ -62,7 +71,7 @@ const trendOption = computed(() => {
     grid: { left: 40, right: 20, top: 20, bottom: 40 },
     xAxis: {
       type: 'category',
-      data: series.map(s => s.date.slice(5)), // MM-DD
+      data: series.map(s => s.date.slice(5)),
       axisLabel: { rotate: 0 }
     },
     yAxis: { type: 'value', minInterval: 1 },
@@ -89,12 +98,62 @@ const trendOption = computed(() => {
   }
 })
 
+const tasteOption = computed(() => {
+  const data = breakdown.value?.by_taste ?? {}
+  return {
+    tooltip: { trigger: 'item' },
+    legend: { bottom: 0, type: 'scroll' },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '65%'],
+      itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+      label: { show: true, formatter: '{b}: {c}' },
+      data: Object.entries(data).map(([name, value]) => ({ name, value }))
+    }]
+  }
+})
+
+const weeklyOption = computed(() => {
+  const wk = breakdown.value?.weekly ?? []
+  return {
+    tooltip: { trigger: 'axis' },
+    grid: { left: 50, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: wk.map(w => w.label) },
+    yAxis: { type: 'value', minInterval: 1 },
+    series: [{
+      type: 'bar',
+      data: wk.map(w => w.count),
+      itemStyle: { color: '#2080f0', borderRadius: [4, 4, 0, 0] },
+      label: { show: true, position: 'top' }
+    }]
+  }
+})
+
+const categoryTrendOption = computed(() => {
+  const trend = breakdown.value?.category_trend
+  if (!trend) return {}
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { bottom: 0, type: 'scroll' },
+    grid: { left: 40, right: 20, top: 20, bottom: 50 },
+    xAxis: { type: 'category', data: trend.dates, axisLabel: { rotate: 0 } },
+    yAxis: { type: 'value', minInterval: 1 },
+    series: trend.series.map(s => ({
+      name: s.name,
+      type: 'line',
+      smooth: true,
+      data: s.data
+    }))
+  }
+})
+
 onMounted(async () => {
   loading.value = true
   try {
     await Promise.all([
       statsStore.fetchDashboardStats(),
-      statsStore.fetchTrend(14)
+      statsStore.fetchTrend(14),
+      statsApi.getBreakdown().then(d => { breakdown.value = d as Breakdown })
     ])
   } finally {
     loading.value = false
@@ -107,7 +166,6 @@ onMounted(async () => {
     <h1 class="page-title">数据统计</h1>
 
     <NSpace vertical :size="16">
-      <!-- 顶部统计 -->
       <NGrid :cols="4" :x-gap="16">
         <NGi>
           <NCard>
@@ -140,7 +198,6 @@ onMounted(async () => {
       </NGrid>
 
       <NSpin :show="loading">
-        <!-- 趋势 + 分类分布 -->
         <NGrid :cols="2" :x-gap="16">
           <NGi>
             <NCard title="近 14 天用餐趋势">
@@ -148,13 +205,29 @@ onMounted(async () => {
             </NCard>
           </NGi>
           <NGi>
-            <NCard title="菜品分类分布">
+            <NCard title="菜品分类（库内）">
               <VChart :option="categoryOption" autoresize style="height: 280px" />
             </NCard>
           </NGi>
         </NGrid>
 
-        <!-- 热门菜品 -->
+        <NGrid :cols="2" :x-gap="16" style="margin-top: 16px">
+          <NGi>
+            <NCard title="口味偏好（已吃过的菜）">
+              <VChart :option="tasteOption" autoresize style="height: 280px" />
+            </NCard>
+          </NGi>
+          <NGi>
+            <NCard title="近 4 周对比">
+              <VChart :option="weeklyOption" autoresize style="height: 280px" />
+            </NCard>
+          </NGi>
+        </NGrid>
+
+        <NCard title="近 30 天分类趋势" style="margin-top: 16px">
+          <VChart :option="categoryTrendOption" autoresize style="height: 320px" />
+        </NCard>
+
         <NCard title="热门菜品 Top 10" style="margin-top: 16px">
           <VChart
             v-if="statsStore.dashboard?.top_dishes?.length"

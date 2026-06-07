@@ -57,6 +57,12 @@ const router = createRouter({
           meta: { title: '食材库存' }
         },
         {
+          path: 'calendar',
+          name: 'calendar',
+          component: () => import('@/views/Calendar.vue'),
+          meta: { title: '餐日历' }
+        },
+        {
           path: 'records',
           name: 'records',
           component: () => import('@/views/Records.vue'),

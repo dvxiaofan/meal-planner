@@ -1,2 +1,2 @@
 // API请求封装
-export { dishApi, recommendApi, recordApi, statsApi, achievementApi, weeklyPlanApi, pantryApi } from './dish'
+export { dishApi, recommendApi, recordApi, statsApi, achievementApi, weeklyPlanApi, pantryApi, usageApi } from './dish'

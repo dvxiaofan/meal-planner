@@ -9,7 +9,7 @@ import type { MenuOption } from 'naive-ui'
 import {
   HomeOutline, RestaurantOutline, StarOutline, TimeOutline,
   CalendarOutline, TrophyOutline, StatsChartOutline, ColorWandOutline,
-  GiftOutline, MenuOutline, CubeOutline
+  GiftOutline, MenuOutline, CubeOutline, GridOutline
 } from '@vicons/ionicons5'
 
 const router = useRouter()
@@ -42,6 +42,7 @@ const menuOptions: MenuOption[] = [
   { label: '周计划', key: 'weekly-plan', icon: () => h(NIcon, null, { default: () => h(CalendarOutline) }) },
   { label: '食材库存', key: 'pantry', icon: () => h(NIcon, null, { default: () => h(CubeOutline) }) },
   { label: '用餐记录', key: 'records', icon: () => h(NIcon, null, { default: () => h(TimeOutline) }) },
+  { label: '餐日历', key: 'calendar', icon: () => h(NIcon, null, { default: () => h(GridOutline) }) },
   { label: '成就系统', key: 'achievements', icon: () => h(NIcon, null, { default: () => h(TrophyOutline) }) },
   { label: '数据统计', key: 'stats', icon: () => h(NIcon, null, { default: () => h(StatsChartOutline) }) }
 ]

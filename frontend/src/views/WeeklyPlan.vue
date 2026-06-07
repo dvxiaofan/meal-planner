@@ -5,7 +5,8 @@ import {
   NCard, NButton, NSpace, NTag, NEmpty, NSpin, NTabs, NTabPane,
   NPopconfirm, NSelect, NGrid, NGi, NDivider, NModal, useMessage
 } from 'naive-ui'
-import { weeklyPlanApi, dishApi } from '@/api'
+import draggable from 'vuedraggable'
+import { weeklyPlanApi, dishApi, pantryApi } from '@/api'
 import type { WeeklyPlanItem, Dish, ShoppingListResponse } from '@/types'
 import { useDishStore } from '@/stores'
 import RecordMealModal from '@/components/RecordMealModal.vue'
@@ -20,6 +21,7 @@ const weekStart = ref(getMonday(new Date()))
 const items = ref<WeeklyPlanItem[]>([])
 const shoppingList = ref<ShoppingListResponse | null>(null)
 const showSwapModal = ref(false)
+const importing = ref(false)
 const swapTarget = ref<WeeklyPlanItem | null>(null)
 const swapDishId = ref<number | null>(null)
 const showRecordModal = ref(false)
@@ -64,6 +66,14 @@ const planMap = computed(() => {
     }
   }
   return map
+})
+
+// 拖拽用：每行 7 个槽位
+const lunchSlots = computed(() => {
+  return Array.from({ length: 7 }, (_, i) => planMap.value[i + 1].lunch || null)
+})
+const dinnerSlots = computed(() => {
+  return Array.from({ length: 7 }, (_, i) => planMap.value[i + 1].dinner || null)
 })
 
 const dishOptions = computed(() =>
@@ -144,6 +154,53 @@ async function removeMeal(item: WeeklyPlanItem) {
   }
 }
 
+interface SlotPayload {
+  newIndex: number
+  oldIndex: number
+  item: WeeklyPlanItem
+  from: 'lunch' | 'dinner'
+  to: 'lunch' | 'dinner'
+}
+
+async function onDragChange(evt: any, row: 'lunch' | 'dinner') {
+  // vuedraggable @change 事件：added / removed / moved
+  if (evt.added) {
+    const moved = evt.added.element as WeeklyPlanItem
+    const newIndex = evt.added.newIndex
+    // 新目标位置上的原 item（如果存在）
+    const targetItem = (row === 'lunch' ? lunchSlots : dinnerSlots).value[newIndex]
+    if (targetItem && targetItem.id !== moved.id) {
+      try {
+        const { items: updated } = await weeklyPlanApi.swapPositions(moved.id, targetItem.id)
+        for (const u of updated) {
+          const i = items.value.findIndex(x => x.id === u.id)
+          if (i >= 0) items.value[i] = u
+        }
+      } catch {
+        // 拦截器处理
+      }
+    } else {
+      // 目标位置为空：直接更新本地状态
+      const i = items.value.findIndex(x => x.id === moved.id)
+      if (i >= 0) {
+        items.value[i] = {
+          ...items.value[i],
+          day_of_week: newIndex + 1,
+          meal_type: row
+        }
+      }
+    }
+  } else if (evt.moved) {
+    // 同行内调换：直接更新 day_of_week
+    const moved = evt.moved.element as WeeklyPlanItem
+    const newIndex = evt.moved.newIndex
+    const i = items.value.findIndex(x => x.id === moved.id)
+    if (i >= 0) {
+      items.value[i] = { ...items.value[i], day_of_week: newIndex + 1 }
+    }
+  }
+}
+
 function goToDish(dish: Dish | null) {
   if (dish) router.push({ name: 'dish-detail', params: { id: dish.id } })
 }
@@ -156,6 +213,24 @@ function openRecord(dish: Dish) {
 async function handleTabChange(name: string | number) {
   if (name === 'shopping' && !shoppingList.value) {
     await fetchShopping()
+  }
+}
+
+async function importAllToPantry() {
+  if (!shoppingList.value) return
+  importing.value = true
+  try {
+    const items = shoppingList.value.items.map(it => ({
+      name: it.name,
+      amount: it.amounts[0] || undefined,
+      category: it.type || undefined
+    }))
+    const { count } = await pantryApi.addFromShoppingList(items)
+    message.success(`已加入 ${count} 项到库存`)
+  } catch {
+    // 拦截器处理
+  } finally {
+    importing.value = false
   }
 }
 
@@ -206,84 +281,98 @@ onMounted(async () => {
               </div>
 
               <div class="meal-label">午餐</div>
-              <div v-for="d in 7" :key="`l-${d}`" class="meal-cell">
-                <NCard
-                  v-if="planMap[d].lunch"
-                  size="small"
-                  class="meal-card"
-                  hoverable
-                >
-                  <div class="meal-card-content" @click="goToDish(planMap[d].lunch?.dish)">
-                    <div class="meal-emoji" v-if="!planMap[d].lunch?.dish?.image_url">🍽️</div>
-                    <img v-else :src="planMap[d].lunch!.dish!.image_url" class="meal-img" />
-                    <div class="meal-name">{{ planMap[d].lunch?.dish?.name }}</div>
-                    <NTag v-if="planMap[d].lunch?.dish?.taste" size="tiny" type="info">
-                      {{ planMap[d].lunch?.dish?.taste }}
-                    </NTag>
+              <draggable
+                v-model="lunchSlots"
+                group="meals"
+                item-key="id"
+                class="meal-row"
+                :animation="200"
+                ghost-class="dragging-ghost"
+                @change="(e: any) => onDragChange(e, 'lunch')"
+              >
+                <template #item="{ element, index }">
+                  <div class="meal-cell" :key="element?.id || `l-empty-${index}`">
+                    <NCard v-if="element" size="small" class="meal-card" hoverable>
+                      <div class="meal-card-content" @click="goToDish(element.dish)">
+                        <div class="meal-emoji" v-if="!element.dish?.image_url">🍽️</div>
+                        <img v-else :src="element.dish!.image_url" class="meal-img" />
+                        <div class="meal-name">{{ element.dish?.name }}</div>
+                        <NTag v-if="element.dish?.taste" size="tiny" type="info">
+                          {{ element.dish?.taste }}
+                        </NTag>
+                      </div>
+                      <template #action>
+                        <NSpace size="small">
+                          <NButton size="tiny" @click="openSwap(element)">换菜</NButton>
+                          <NPopconfirm @positive-click="removeMeal(element)">
+                            <template #trigger>
+                              <NButton size="tiny" type="error" ghost>删除</NButton>
+                            </template>
+                            删除这餐？
+                          </NPopconfirm>
+                          <NButton
+                            v-if="element.dish"
+                            size="tiny"
+                            type="primary"
+                            ghost
+                            @click="openRecord(element.dish!)"
+                          >记录</NButton>
+                        </NSpace>
+                      </template>
+                    </NCard>
+                    <div v-else class="meal-empty">
+                      <NButton size="small" dashed @click="generatePlan">未规划</NButton>
+                    </div>
                   </div>
-                  <template #action>
-                    <NSpace size="small">
-                      <NButton size="tiny" @click="openSwap(planMap[d].lunch!)">换菜</NButton>
-                      <NPopconfirm @positive-click="removeMeal(planMap[d].lunch!)">
-                        <template #trigger>
-                          <NButton size="tiny" type="error" ghost>删除</NButton>
-                        </template>
-                        删除这餐？
-                      </NPopconfirm>
-                      <NButton
-                        v-if="planMap[d].lunch?.dish"
-                        size="tiny"
-                        type="primary"
-                        ghost
-                        @click="openRecord(planMap[d].lunch!.dish!)"
-                      >记录</NButton>
-                    </NSpace>
-                  </template>
-                </NCard>
-                <div v-else class="meal-empty">
-                  <NButton size="small" dashed @click="generatePlan">未规划</NButton>
-                </div>
-              </div>
+                </template>
+              </draggable>
 
               <div class="meal-label">晚餐</div>
-              <div v-for="d in 7" :key="`d-${d}`" class="meal-cell">
-                <NCard
-                  v-if="planMap[d].dinner"
-                  size="small"
-                  class="meal-card"
-                  hoverable
-                >
-                  <div class="meal-card-content" @click="goToDish(planMap[d].dinner?.dish)">
-                    <div class="meal-emoji" v-if="!planMap[d].dinner?.dish?.image_url">🌙</div>
-                    <img v-else :src="planMap[d].dinner!.dish!.image_url" class="meal-img" />
-                    <div class="meal-name">{{ planMap[d].dinner?.dish?.name }}</div>
-                    <NTag v-if="planMap[d].dinner?.dish?.taste" size="tiny" type="info">
-                      {{ planMap[d].dinner?.dish?.taste }}
-                    </NTag>
+              <draggable
+                v-model="dinnerSlots"
+                group="meals"
+                item-key="id"
+                class="meal-row"
+                :animation="200"
+                ghost-class="dragging-ghost"
+                @change="(e: any) => onDragChange(e, 'dinner')"
+              >
+                <template #item="{ element, index }">
+                  <div class="meal-cell" :key="element?.id || `d-empty-${index}`">
+                    <NCard v-if="element" size="small" class="meal-card" hoverable>
+                      <div class="meal-card-content" @click="goToDish(element.dish)">
+                        <div class="meal-emoji" v-if="!element.dish?.image_url">🌙</div>
+                        <img v-else :src="element.dish!.image_url" class="meal-img" />
+                        <div class="meal-name">{{ element.dish?.name }}</div>
+                        <NTag v-if="element.dish?.taste" size="tiny" type="info">
+                          {{ element.dish?.taste }}
+                        </NTag>
+                      </div>
+                      <template #action>
+                        <NSpace size="small">
+                          <NButton size="tiny" @click="openSwap(element)">换菜</NButton>
+                          <NPopconfirm @positive-click="removeMeal(element)">
+                            <template #trigger>
+                              <NButton size="tiny" type="error" ghost>删除</NButton>
+                            </template>
+                            删除这餐？
+                          </NPopconfirm>
+                          <NButton
+                            v-if="element.dish"
+                            size="tiny"
+                            type="primary"
+                            ghost
+                            @click="openRecord(element.dish!)"
+                          >记录</NButton>
+                        </NSpace>
+                      </template>
+                    </NCard>
+                    <div v-else class="meal-empty">
+                      <NButton size="small" dashed @click="generatePlan">未规划</NButton>
+                    </div>
                   </div>
-                  <template #action>
-                    <NSpace size="small">
-                      <NButton size="tiny" @click="openSwap(planMap[d].dinner!)">换菜</NButton>
-                      <NPopconfirm @positive-click="removeMeal(planMap[d].dinner!)">
-                        <template #trigger>
-                          <NButton size="tiny" type="error" ghost>删除</NButton>
-                        </template>
-                        删除这餐？
-                      </NPopconfirm>
-                      <NButton
-                        v-if="planMap[d].dinner?.dish"
-                        size="tiny"
-                        type="primary"
-                        ghost
-                        @click="openRecord(planMap[d].dinner!.dish!)"
-                      >记录</NButton>
-                    </NSpace>
-                  </template>
-                </NCard>
-                <div v-else class="meal-empty">
-                  <NButton size="small" dashed @click="generatePlan">未规划</NButton>
-                </div>
-              </div>
+                </template>
+              </draggable>
             </div>
           </NSpin>
         </NTabPane>
@@ -298,9 +387,17 @@ onMounted(async () => {
             </NEmpty>
 
             <div v-else>
-              <NSpace style="margin-bottom: 16px">
+              <NSpace style="margin-bottom: 16px" align="center" :wrap="true">
                 <NTag type="info">📅 {{ shoppingList.week_start }} 周</NTag>
                 <NTag>共 {{ shoppingList.items.length }} 种食材</NTag>
+                <NButton
+                  type="primary"
+                  size="small"
+                  :loading="importing"
+                  @click="importAllToPantry"
+                >
+                  🧊 全部加入库存
+                </NButton>
               </NSpace>
 
               <div v-for="group in groupedShopping" :key="group.cat" class="shopping-group">
@@ -373,6 +470,16 @@ onMounted(async () => {
   grid-template-columns: 60px repeat(7, 1fr);
   gap: 8px;
   align-items: start;
+}
+
+.meal-row {
+  display: contents;
+}
+
+.dragging-ghost {
+  opacity: 0.4;
+  background: #f0fdf4;
+  border: 2px dashed #18a058;
 }
 
 .grid-header {

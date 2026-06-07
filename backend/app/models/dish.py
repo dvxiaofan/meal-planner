@@ -108,6 +108,17 @@ class PantryItem(Base):
     unit = Column(String(20))
     category = Column(String(50))
     note = Column(Text)
+    expires_at = Column(DateTime)  # 过期时间（可选）
     in_stock = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class UsageCounter(Base):
+    """使用次数计数器（转盘/盲盒/心情等）"""
+    __tablename__ = "usage_counters"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(50), unique=True, nullable=False, index=True)
+    count = Column(Integer, default=0, nullable=False)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

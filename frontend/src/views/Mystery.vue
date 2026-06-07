@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { NCard, NButton, NSpace, NTag, NEmpty, NSpin } from 'naive-ui'
 import { useRecommendStore } from '@/stores'
+import { usageApi } from '@/api'
 import RecordMealModal from '@/components/RecordMealModal.vue'
 import type { Dish } from '@/types'
 
@@ -50,6 +51,8 @@ function pickCard(idx: number) {
   if (started.value && cards.value.some(c => c.flipped)) return
   cards.value[idx].flipped = true
   cards.value[idx].chosen = true
+  // 累计盲盒使用次数
+  usageApi.increment('mystery').catch(() => {})
   // 给其它牌也翻开（揭晓模式）
   setTimeout(() => {
     cards.value.forEach((c, i) => {
