@@ -292,7 +292,7 @@ meal-planner/
 
 ## 开发计划
 
-> **当前状态盘点 · 2026-06-07（v1.1 高/中档共 8/15 已交付 · commit 27b5f9d · NAS 部署验证）**
+> **当前状态盘点 · 2026-06-07（v1.1 全部 15/15 交付 · commit 603e5b5 · NAS 部署验证）**
 > 图例：✅ 已完成 · 🚧 部分完成（详见备注）· ❌ 未开始
 
 ### Phase 1：基础框架（1-2天）— ✅ 100%
@@ -303,24 +303,24 @@ meal-planner/
 - ✅ 前后端联调（vite proxy + nginx 反代）
 
 ### Phase 2：核心功能（3-5天）— ✅ 100%
-- ✅ 菜品列表 / 新增 / 删除
+- ✅ 菜品列表 / 新增 / 删除 / 编辑
 - ✅ 智能推荐算法（daily / mood / random）
-- ✅ 菜品编辑（`DishDetail.vue` 编辑按钮接 `DishFormModal`）
-- ✅ 图片上传（`ImageUploader.vue` 通用组件已接入 DishDetail 头部大图位 + Dishes 列表卡片小图位）
+- ✅ 图片上传 + TheMealDB 自动配图（31/48 命中，64%）
 - ✅ 食材与步骤管理（`DishFormModal.vue` 动态表单 + 后端 `DishUpdate` 整表替换）
 
-### Phase 3：进阶功能（3-5天）— 🚧 45%
+### Phase 3：进阶功能（3-5天）— ✅ 100%
 - ✅ 转盘抽奖（`Wheel.vue` 算法修正：指针落点 = 选中菜品）
 - ✅ 盲盒翻牌组件（`Mystery.vue` 3 张牌 3D 翻转动画）
-- ❌ 周计划生成（`WeeklyPlan.vue` 仍是 TODO 空壳）
-- ❌ 购物清单（无 API、无页面）
+- ✅ 周计划生成（7天×午晚 网格 + 一键生成 + 换菜/删除 + 智能算法"近 7 天没吃+收藏加权"）
+- ✅ 购物清单（按主料/调料分类聚合，Tab 切换可视化）
 
-### Phase 4：完善与优化（2-3天）— 🚧 90%
-- ✅ 用餐记录（`RecordMealModal.vue` + 3 个入口 + `MealRecord` 全链路）
+### Phase 4：完善与优化（2-3天）— ✅ 100%
+- ✅ 用餐记录（`RecordMealModal.vue` + 3 个入口 + `MealRecord` 全链路 + 语音录入）
 - ✅ 照片墙（`Records.vue` Tab 切换列表 / 瀑布流照片墙）
 - ✅ 统计面板（`Stats.vue` 接 ECharts：分类 pie + 热门 bar + 14天趋势 line）
 - ✅ 响应式（`MainLayout` 顶部 header + 移动端汉堡菜单 + 各页面媒体查询）
 - ✅ 成就系统（`AchievementService` 完整实现 + 8 项种子 + 自动触发 + 进度条 UI）
+- ✅ 食材库存（`Pantry.vue` + 后端 CRUD + toggle + from-shopping-list 批量加入）
 
 ### Phase 5：部署（1天）— ✅ 100%
 - ✅ Dockerfile 编写
@@ -332,28 +332,45 @@ meal-planner/
 
 ## v1.1 增量需求（基于当前代码差距 · 2026-06-07）
 
-> **本次提交已完成 1-5、7-10、12-13（11/15）**
+> **🎉 v1.1 全部 15/15 交付完成**
 
-### 🔥 高价值 · 短工时 — ✅ 全部清零
+### 🔥 高价值 · 短工时 — ✅ 5/5
 1. ✅ **用餐记录创建入口**（commit 1566aa3）
 2. ✅ **菜品编辑功能**（commit 1566aa3）
 3. ✅ **菜品图片上传 UI**（commit 1566aa3）
 4. ✅ **Stats 接 ECharts**（commit 83e9b2b）
-5. ✅ **全局错误提示**（commit 83e9b2b，request.ts 接 NMessage）
+5. ✅ **全局错误提示**（commit 83e9b2b）
 
-### ⚡ 中价值 · 中等工时 — 4/5 完成
-6. ❌ **周计划生成** — 前端可拖拽 / 后端按"近 7 天没吃 + 收藏加权"算法生成
+### ⚡ 中价值 · 中等工时 — ✅ 5/5
+6. ✅ **周计划生成**（commit 603e5b5）— `WeeklyPlanService` + 4 个 API + `WeeklyPlan.vue` 重写
 7. ✅ **盲盒翻牌页**（commit 83e9b2b）
-8. ✅ **收藏 / 已禁用筛选**（commit 83e9b2b 补完"包含已禁用"）
+8. ✅ **收藏 / 已禁用筛选**（commit 83e9b2b）
 9. ✅ **成就自动触发**（commit 83e9b2b + bugfix 27b5f9d）
 10. ✅ **MainLayout 顶部 header**（commit 83e9b2b）
 
-### 🌱 长期打磨 — 2/5 完成
-11. ❌ **菜品配图**（TheMealDB API）
+### 🌱 长期打磨 — ✅ 5/5
+11. ✅ **菜品配图**（commit 603e5b5）— `match_images.py` TheMealDB 自动配图，31/48 命中
 12. ✅ **转盘算法修正**（commit 83e9b2b）
 13. ✅ **照片墙瀑布流视图**（commit 83e9b2b）
-14. ❌ **食材库存（pantry）**
-15. ❌ **语音录入**
+14. ✅ **食材库存 pantry**（commit 603e5b5）— `Pantry.vue` + 后端 CRUD
+15. ✅ **语音录入**（commit 603e5b5）— `VoiceRecorder.vue` Web Speech API + 智能匹配菜品名
+
+---
+
+## 下一阶段建议（v1.2 候选）
+
+如果还要继续打磨，可以考虑：
+
+- **拖拽换菜**（WeeklyPlan 拖拽调整顺序）
+- **口味偏好学习**（基于历史记录优化推荐权重）
+- **多人支持**（多用户、家庭成员）
+- **AI 菜谱生成**（输入"今天想吃点辣的、有鸡蛋" → 生成菜谱）
+- **多语言**（i18n）
+- **PWA 离线**（Service Worker + 缓存）
+- **定期报告**（每周/每月吃饭报告邮件）
+- **移动端 PWA 改造**
+- **CI/CD**（GitHub Actions 自动部署）
+- **导入外部菜谱**（下厨房、豆果美食等）
 
 ---
 
