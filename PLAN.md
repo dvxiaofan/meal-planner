@@ -374,6 +374,54 @@ meal-planner/
 
 ---
 
+## v1.2 实施记录 · 2026-06-07
+
+> **Phase A + Phase B 全套交付**（commit a169728 · NAS 部署验证）
+
+### 完成清单
+| ID | 项 | 状态 | 备注 |
+|---|---|---|---|
+| T1.1 | 评分驱动口味学习 | ✅ | 推荐权重叠加：收藏 2x + 高评分 2x + 低评分 0.5x |
+| T1.2 | 购物清单 → 库存一键导入 | ✅ | WeeklyPlan 购物清单 Tab 加按钮，复用现有 /pantry/from-shopping-list |
+| T1.3 | 记录照片上传 | ✅ | 后端 /records/{id}/photo · 前端 Records 列表 NUpload + 缩略图 |
+| T1.4 | 使用次数统计 | ✅ | UsageCounter 表 + 4 新成就（心情达人/全心情/转盘/盲盒）|
+| T1.5 | 拖拽换菜 | ✅ | vuedraggable@next + /weekly-plan/swap-positions 端点 |
+| T2.1 | Home 升级 | ✅ | 4 统计 + 7天打卡日历 + 今日餐别状态 + 快速记录 |
+| T2.2 | 日历年视图 | ✅ | Calendar.vue：6×7 月历 + 餐别色点 + 点击下钻 |
+| T2.3 | 用量预警 + 过期 | ✅ | PantryItem.expires_at + 顶部 NAlert 预警条 + 卡片角标 |
+| T2.4 | 补 17 道菜配图 | ⚠️ | TheMealDB 真没有这 17 道国内地方菜，64% 是国际食材库天花板 |
+| T2.5 | Stats 二阶维度 | ✅ | /stats/breakdown 端点 + 口味 pie + 周柱状 + 30天分类折线 |
+
+### 新增 / 修改文件
+**后端 (4)**：`api/dishes.py` · `models/dish.py` · `schemas/dish.py` · `services/dish_service.py`
+
+**前端 (10)**：`views/{Home,Records,Pantry,Stats,WeeklyPlan,Mystery}.vue`（重写/扩展）+ `views/Calendar.vue`（新）+ `stores/achievement.ts`（新）+ `api/dish.ts` + `types/index.ts` + `router/index.ts` + `layouts/MainLayout.vue`
+
+**依赖**：`vuedraggable@next`
+
+### NAS 部署验证（smoke test）
+```
+GET /health                      → 200
+GET /api/usage/stats             → 200
+GET /api/stats/breakdown         → 200
+GET /api/achievements            → 12 项（8 原有 + 4 新增）
+POST /api/recommend/random       → wheel 计数 +1
+GET /api/usage/stats             → wheel: 1 次
+GET /api/stats/breakdown         → 口味分布/周对比/30天分类 数据完整
+```
+
+### Phase A 隐含收益
+- T1.4 兑现了 PLAN.md 早期对"转盘达人/盲盒收藏家"成就的承诺
+- T1.5 让 WeeklyPlan 真正"能动"（之前只能换菜不能换位置）
+- T2.1 解决了"用过 1 周还是没人用"——首页就是看板
+
+### Phase B 隐含收益
+- T2.2 Calendar 给"看历史"提供独立入口（不需钻进 Records 翻）
+- T2.3 把"买了什么忘了吃"这个真实痛点（保质期）暴露出来
+- T2.5 让"为什么首页连续打卡卡住的？"这类问题有数据可查
+
+---
+
 ## v1.2 规划 · 2026-06-07
 
 ### 现状审计（v1.1 收尾后还剩的粗糙点）
