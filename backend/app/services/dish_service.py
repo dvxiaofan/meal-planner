@@ -221,7 +221,17 @@ class RecommendService:
                     w *= 0.5
             weights.append(max(0.1, w))
 
-        selected = random.choices(dishes, weights=weights, k=settings.RECOMMEND_COUNT)
+        # 加权无放回抽样：避免同一餐推荐出现重复菜品
+        # （random.choices 是有放回的，会重复；这里逐个抽取并从候选池移除）
+        pool = list(zip(dishes, weights))
+        selected = []
+        for _ in range(settings.RECOMMEND_COUNT):
+            if not pool:
+                break
+            cand_dishes, cand_weights = zip(*pool)
+            chosen = random.choices(cand_dishes, weights=cand_weights, k=1)[0]
+            selected.append(chosen)
+            pool = [(d, w) for d, w in pool if d.id != chosen.id]
         return selected
     
     def get_mood_recommend(self, mood: str) -> List[Dish]:
