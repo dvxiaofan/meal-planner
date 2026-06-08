@@ -35,21 +35,25 @@
 
 ## 🚀 快速开始
 
-### 方式一：Docker部署（推荐）
+### 方式一：Docker部署（推荐，全栈）
 
 ```bash
 # 克隆项目
 git clone <repository-url>
 cd meal-planner
 
-# 启动服务
-docker-compose up -d
+# 构建并启动 backend + frontend（首次或代码更新后加 --build）
+docker-compose up -d --build
 
 # 访问应用
-# 前端：http://localhost:8080
+# 前端：http://localhost:7878
 # 后端API：http://localhost:8000
 # API文档：http://localhost:8000/docs
 ```
+
+> 前端容器内的 nginx 通过 compose 网络以服务名 `backend:8000` 反代 API，无需硬编码宿主机 IP。
+> 前端走静态产物 `frontend/dist`，若尚未构建请先 `cd frontend && npm install && npm run build`。
+> 首次启动后接入数据库迁移链：`docker-compose exec backend alembic stamp head`（详见「数据库迁移」）。
 
 ### 方式二：本地开发
 
@@ -134,6 +138,32 @@ meal-planner/
 - `GET /api/records` — 获取用餐记录
 - `POST /api/records` — 创建用餐记录
 - `GET /api/stats/dashboard` — 仪表盘数据
+
+## 🗄️ 数据库迁移（Alembic）
+
+数据库结构变更通过 Alembic 管理。**不要再依赖应用启动时的 `create_all` 给已有表加列**——它只新建不存在的表，不会 `ALTER` 已存在的表，否则升级后会“丢列”（如曾经的 `pantry_items.expires_at`）。
+
+```bash
+cd backend
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+# 新库接入迁移链：首次启动 create_all 建好表后，把当前结构标记为基线
+alembic stamp head
+
+# 改了 models 之后：生成并应用迁移
+alembic revision --autogenerate -m "describe change"
+alembic upgrade head
+```
+
+Docker 部署时在容器内执行：
+
+```bash
+docker-compose exec backend alembic upgrade head
+```
+
+> 已部署且结构漂移的旧库（例如缺 `expires_at`）：先 `alembic stamp head` 接入，再
+> `alembic revision --autogenerate -m "reconcile"` 让 Alembic 对比 models 补出缺失列，最后 `alembic upgrade head`。
 
 ## 🎨 视觉风格
 
